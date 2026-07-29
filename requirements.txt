@@ -1,0 +1,12 @@
+# Core
+anthropic>=0.40            # Claude API — fast lane
+websockets>=12             # Deepgram streaming (raw WS client)
+python-dotenv>=1.0         # .env loading
+
+# Deep lane (optional) — the "Claude Code in the conversation" session.
+# Also requires the Claude Code CLI on PATH:  npm i -g @anthropic-ai/claude-code
+claude-agent-sdk>=0.1
+
+# Local STT (optional) — set STT_BACKEND=local to use instead of Deepgram.
+# CPU works; a CUDA GPU is much faster.
+# faster-whisper>=1.0
