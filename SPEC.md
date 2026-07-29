@@ -128,10 +128,40 @@ user   = window(n_chars=4000)                                        # volatile,
 
 | Var | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Claude (both lanes) |
+| `ANTHROPIC_API_KEY` | Fast lane. Blank → fall back to an `ant auth login` profile |
+| `DEEP_LANE_AUTH` | `subscription` (default) or `api` — see §5.1 |
 | `DEEPGRAM_API_KEY` | STT (omit if using local Whisper) |
+| `STT_BACKEND` | `deepgram` (default) or `local` |
 | `BIRD_BRAIN_FIFO` | FIFO path, default `/tmp/bird_brain.fifo` |
 | `BIRD_BRAIN_RESUME` | path to a text file of your background/knowledge base |
+| `BIRD_BRAIN_WINDOW_CHARS` | transcript tail size, default 4000 |
+
+### 5.1 Auth split — why the two lanes can bill differently
+
+The lanes talk to different surfaces:
+
+| Lane | Surface | Credential |
+|---|---|---|
+| Fast | Anthropic API (`messages.stream`) | API key, or an `ant auth login` profile — always per-token |
+| Deep | Claude Agent SDK → Claude Code CLI | Claude Code's own login (subscription) **or** an API key |
+
+The trap: an explicit `ANTHROPIC_API_KEY` in the environment outranks an OAuth /
+subscription credential, and the Agent SDK spawns a child process that inherits our
+environment. So simply having the key set routes the deep lane to per-token billing whether you
+wanted that or not — silently.
+
+`config.load()` handles it, and **must run before `DeepLane.start()`**:
+
+- `DEEP_LANE_AUTH=subscription` (default) — capture the key, `os.environ.pop` it, pass it to
+  `FastLane(api_key=...)` explicitly. The child process sees no key and falls through to
+  whatever `claude login` established. Requires `claude login` once.
+- `DEEP_LANE_AUTH=api` — leave the environment untouched; both lanes bill to the API key.
+
+`ANTHROPIC_AUTH_TOKEN` is deliberately never touched: if it's set, it was set on purpose and is
+a legitimate credential.
+
+If the Agent SDK session fails to open (no CLI, not logged in), the deep lane prints why,
+disables itself, and the fast lane continues unaffected.
 
 ## 6. Deliberately deferred
 

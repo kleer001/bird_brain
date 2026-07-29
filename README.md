@@ -41,6 +41,11 @@ monitor ┘                              └─ press DEEP  ─▶ DEEP lane ─
 The trigger is explicit (a keypress per lane), so there's no turn-taking classifier and no
 guessing when to speak.
 
+The two lanes use different Claude surfaces — the fast lane calls the Anthropic API directly, the
+deep lane drives Claude Code via the Agent SDK — which means they can bill differently. By
+default the deep lane runs on your Claude Code login rather than API credit; see
+`SPEC.md` §5.1.
+
 ## Prototype scope
 
 Voice-only, terminal output. No overlay window, no TTS, no stealth/screen-share hiding — those
@@ -54,6 +59,7 @@ are later. See `SPEC.md` for what's deliberately deferred.
 | `SPEC.md` | Component-by-component design, data shapes, latency budget, deferred work |
 | `requirements.txt` | Python deps |
 | `.env.example` | Keys to fill in |
+| `src/config.py` | Startup config + the fast/deep auth split |
 | `src/audio.py` | `parec` capture of monitor + mic |
 | `src/stt.py` | Streaming speech-to-text (Deepgram; local Whisper alt noted) |
 | `src/transcript.py` | Rolling, speaker-tagged transcript buffer |

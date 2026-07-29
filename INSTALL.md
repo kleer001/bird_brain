@@ -52,7 +52,7 @@ The Claude Agent SDK also needs the Claude Code CLI on PATH:
 npm install -g @anthropic-ai/claude-code     # provides the runtime the Agent SDK drives
 ```
 
-## 3. API keys
+## 3. API keys and the two billing paths
 
 ```bash
 cp .env.example .env
@@ -61,6 +61,25 @@ $EDITOR .env      # fill ANTHROPIC_API_KEY, and DEEPGRAM_API_KEY if using cloud 
 
 Point `BIRD_BRAIN_RESUME` at a plain-text file of your background — the knowledge base the fast
 lane answers from.
+
+The two lanes can bill differently, and `DEEP_LANE_AUTH` picks which:
+
+| `DEEP_LANE_AUTH` | Fast lane | Deep lane | You need |
+|---|---|---|---|
+| `subscription` (default) | API key, per-token | Claude Code login — **not** API credit | `claude login` once |
+| `api` | API key, per-token | same API key, per-token | nothing extra |
+
+In `subscription` mode the app removes `ANTHROPIC_API_KEY` from its own environment before
+starting the Agent SDK, because an explicit key outranks a subscription credential and the SDK's
+child process inherits the environment. The fast lane still gets the key — passed directly. So:
+
+```bash
+claude login          # once, if using DEEP_LANE_AUTH=subscription
+claude -p 'say ok'    # confirm the CLI is authenticated
+```
+
+If the deep lane can't authenticate it says so at startup, disables itself, and the fast lane
+keeps working.
 
 ## 4. The hotkey (the one Linux-specific gotcha)
 

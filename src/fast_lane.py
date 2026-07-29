@@ -44,8 +44,12 @@ def _load_background() -> str:
 
 
 class FastLane:
-    def __init__(self) -> None:
-        self._client = AsyncAnthropic()
+    def __init__(self, api_key: str | None = None) -> None:
+        # The key is passed explicitly because config.load() may have removed it
+        # from the environment to keep the deep lane on subscription auth (see
+        # config.py). api_key=None falls through to the SDK's own credential
+        # resolution — env vars, then an `ant auth login` profile.
+        self._client = AsyncAnthropic(api_key=api_key)
         background = _load_background()
         # Two stable breakpoints. Byte-identical across every press, so the
         # whole prefix is a cache read after the first call.

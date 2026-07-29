@@ -31,7 +31,10 @@ class DeepLane:
         self._client = None
         self._ctx = None
 
-    async def start(self) -> bool:
+    async def start(self, auth: str = "subscription") -> bool:
+        """Open the session. `auth` is informational — the actual routing was
+        decided in config.load(), which either left ANTHROPIC_API_KEY in the
+        environment (api mode) or removed it (subscription mode)."""
         try:
             from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
         except ImportError:
@@ -43,8 +46,22 @@ class DeepLane:
             allowed_tools=["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Bash"],
         )
         self._ctx = ClaudeSDKClient(options)
-        self._client = await self._ctx.__aenter__()
-        print("[deep] session ready")
+        try:
+            self._client = await self._ctx.__aenter__()
+        except Exception as exc:  # noqa: BLE001 — fast lane must survive this
+            self._ctx = self._client = None
+            print(f"[deep] session failed to start ({exc!r}) — deep lane disabled")
+            if auth == "subscription":
+                print(
+                    "[deep] subscription mode: run `claude login` (or set "
+                    "DEEP_LANE_AUTH=api to bill this lane to your API key)"
+                )
+            return False
+
+        if auth == "subscription":
+            print("[deep] session ready — Claude Code credential (subscription)")
+        else:
+            print("[deep] session ready — ANTHROPIC_API_KEY (per-token billing)")
         return True
 
     async def stop(self) -> None:

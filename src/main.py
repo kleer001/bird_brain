@@ -12,14 +12,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from dotenv import load_dotenv
-
-from . import audio, hotkey, stt
+from . import audio, config, hotkey, stt
 from .deep_lane import DeepLane
 from .fast_lane import FastLane
 from .transcript import TranscriptBuffer
-
-WINDOW_CHARS = 4000  # transcript tail handed to the lanes; tune this
 
 
 async def pipeline(device: str, speaker: str, buf: TranscriptBuffer) -> None:
@@ -33,7 +29,10 @@ async def pipeline(device: str, speaker: str, buf: TranscriptBuffer) -> None:
 
 
 async def main() -> None:
-    load_dotenv()
+    # Must run before DeepLane.start(): in subscription mode this strips
+    # ANTHROPIC_API_KEY from the environment so the Agent SDK's child process
+    # falls through to the Claude Code credential instead of API billing.
+    cfg = config.load()
     buf = TranscriptBuffer()
 
     mic = audio.default_mic()
@@ -41,7 +40,7 @@ async def main() -> None:
     print(f"[audio] me   <- {mic}")
     print(f"[audio] them <- {monitor}")
 
-    fast = FastLane()
+    fast = FastLane(api_key=cfg.anthropic_api_key)
     deep = DeepLane()
 
     tasks = [
@@ -50,7 +49,7 @@ async def main() -> None:
     ]
 
     await fast.prewarm()
-    await deep.start()
+    await deep.start(auth=cfg.deep_auth)
 
     # One in-flight run per lane. A second press while a lane is busy is
     # dropped rather than queued — mid-conversation, a stale answer arriving
@@ -68,7 +67,7 @@ async def main() -> None:
     print(f"[ready] listening. FIFO: {hotkey.fifo_path()}")
     try:
         async for token in hotkey.triggers():
-            window = buf.window(WINDOW_CHARS)
+            window = buf.window(cfg.window_chars)
             if token == "answer":
                 print("\n--- FAST ---")
                 launch("fast", fast.answer(window))
