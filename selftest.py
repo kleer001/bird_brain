@@ -173,16 +173,22 @@ def check_stt(cfg: config.Config, mic_audio: bytes | None) -> None:
     report("transcribes speech", bool(text), text or "(nothing decoded)")
 
 
-def check_fast_credential(cfg: config.Config) -> None:
+def check_fast_lane(cfg: config.Config) -> None:
+    """Both lanes run on the Claude Code credential now, so this opens the real
+    session rather than inspecting a key that no longer exists."""
+    import asyncio
+
     from src.fast_lane import FastLane
 
-    lane = FastLane(api_key=cfg.anthropic_api_key)
-    report(
-        "fast lane credential",
-        lane.available,
-        "resolved" if lane.available
-        else "none — set ANTHROPIC_API_KEY or run `ant auth login` (INSTALL.md §3)",
-    )
+    lane = FastLane(model=cfg.fast_model)
+
+    async def open_and_close() -> bool:
+        ok = await lane.start()
+        await lane.stop()
+        return ok
+
+    ok = asyncio.run(open_and_close())
+    report("fast lane session", ok, cfg.fast_model if ok else "session would not open")
 
 
 def check_deep_credential(cfg: config.Config) -> None:
@@ -245,7 +251,7 @@ def main() -> int:
         check_monitor_signal(monitor)
         mic_audio = None if args.no_mic else check_mic(mic)
         check_stt(cfg, mic_audio)
-        check_fast_credential(cfg)
+        check_fast_lane(cfg)
         check_deep_credential(cfg)
         check_trigger()
     except Failed:
