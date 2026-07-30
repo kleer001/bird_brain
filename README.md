@@ -21,7 +21,9 @@
 
 ---
 
-A voice copilot for Linux that listens to **both sides** of a spoken conversation — your mic and whatever is coming out of your speakers — keeps a rolling speaker-tagged transcript, and hands it to Claude **only when you press a key**. No turn-taking classifier, no guessing when to speak. You decide.
+A **terminal** voice copilot for Linux. It listens to both sides of a spoken conversation — your mic and whatever is coming out of your speakers — keeps a rolling speaker-tagged transcript, and hands it to Claude **only when you press a key**. No turn-taking classifier, no guessing when to speak. You decide.
+
+You run it in a terminal and watch it work there. The transcript scrolls past as people talk, tagged `[me]` and `[them]`, and the answer streams into the same window. There is no overlay, no second app, nothing to alt-tab to — one window you keep in the corner of the screen.
 
 It has two lanes on two hotkeys, because "what do I say right now" and "is that actually true" are different questions with different deadlines.
 
@@ -49,13 +51,13 @@ Full setup, including binding the hotkeys: **[docs/INSTALL.md](docs/INSTALL.md)*
 ## How it works
 
 ```
-  mic ────┐                                  ┌── Meta+Space ──▶ FAST lane ──▶ streamed answer
-          ├──▶ STT ──▶ rolling transcript ───┤    (Haiku, no tools, one turn)
-monitor ──┘        (speaker-tagged, in RAM)  └── Meta+D ──────▶ DEEP lane ──▶ researched answer
-                                                  (Agent SDK session, tools on)
+  mic ────┐                                  ┌── Meta+Space ──▶ FAST lane ──┐
+          ├──▶ STT ──▶ rolling transcript ───┤    (Haiku, no tools)         ├──▶ your terminal
+monitor ──┘        (speaker-tagged, in RAM)  └── Meta+D ──────▶ DEEP lane ──┘
+                                                  (Agent SDK, tools on)
 ```
 
-Both lanes read the same transcript window; they differ in what they're allowed to do with it. The deep lane can search the web, read files, and grep the codebase. Its shell access is gated behind an explicit `y/N` prompt, because the transcript contains the *other* party's speech — a command here can be shaped by input you don't control.
+Everything lands in the one terminal — transcript lines as they're finalized, then whichever lane you triggered streaming its answer below them. Both lanes read the same transcript window; they differ in what they're allowed to do with it. The deep lane can search the web, read files, and grep the codebase. Its shell access is gated behind an explicit `y/N` prompt in that same terminal, because the transcript contains the *other* party's speech — a command here can be shaped by input you don't control.
 
 | | Fast lane | Deep lane |
 |---|---|---|
@@ -68,6 +70,8 @@ Both lanes read the same transcript window; they differ in what they're allowed 
 
 A press while that lane is still working is **dropped, not queued**. Mid-conversation, a stale answer arriving late is worse than none.
 
+Component-level design, data shapes, and what's deliberately deferred: **[docs/SPEC.md](docs/SPEC.md)**. The live run-through for judging whether it's actually any good: **[docs/MVP_TEST.md](docs/MVP_TEST.md)**.
+
 ## Why native, and not a browser extension
 
 System-audio capture in the browser is a dead end on Linux:
@@ -79,51 +83,25 @@ System-audio capture in the browser is a dead end on Linux:
 
 PipeWire exposes a `.monitor` source carrying everything you hear, from any app, with no permission prompt. The hard part on macOS and in browsers is nearly free here — and it's **app-agnostic**: it makes no difference whether the call is in Firefox, Chrome, or a native Zoom or Teams client.
 
-## Speech to text
+## Transcription
 
-Local by default: `faster-whisper` on your own GPU, no key, nothing leaving the machine. One model is shared by both capture pipelines and loads alongside capture rather than ahead of it, so the opening seconds of a conversation aren't lost to a cold start.
+`faster-whisper` on your own GPU by default — no key, no upload, no per-hour cost. Both capture pipelines share one model, and it loads alongside capture rather than before it, so the opening seconds of a conversation aren't lost to a cold start. Finished lines print to the terminal as they land, so you can see what Claude will be reading before you press anything.
 
-`vad_filter` stays on and is not a tuning knob — fed a silent window, Whisper reliably invents dialogue, and that fabrication lands in the transcript both lanes read as though someone said it.
-
-Deepgram is supported as a cloud alternative (`STT_BACKEND=deepgram`), and startup refuses that combination without a key rather than failing on the first audio chunk.
+Deepgram is there as a cloud alternative (`STT_BACKEND=deepgram`) if you want it.
 
 ## The background file
 
-The fast lane answers from `prompts/background.txt` — not a résumé, but a stance on judging claims and giving answers. Triage by whether the truth moves. Primary evidence over commentary. One source citing another is one source. Name the base rate. Follow the incentive. Say plainly what isn't known.
+`prompts/background.txt` is the fast lane's prompt — the standing context Haiku answers from, loaded once at startup and identical on every press.
 
-It ships with worked exchanges in the transcript's own speaker format, and it shows. Told *"everyone's moved off that library, it's basically dead — should we rewrite?"*, the lane answers:
-
-> Before you rewrite, verify the claim. Download trends and commit history are both public — if the library is dead, those will show it clearly. "Everyone moved off" is usually commentary, not evidence, and rewriting is expensive enough that it deserves to rest on something more solid than the vibe.
+It carries a stance rather than a biography: how to judge a claim you just heard, and how to answer a question honestly. Triage by whether the truth moves. Primary evidence over commentary. Name the base rate. Say plainly what you don't know. Alongside that are worked exchanges written in the transcript's own `[them]` / `[me]` format, which set the register — spoken, answer first, short.
 
 Point `BIRD_BRAIN_RESUME` at your own file to replace it.
 
-## Docs
-
-| File | What |
-|---|---|
-| **[docs/INSTALL.md](docs/INSTALL.md)** | PipeWire, hotkey binding, Python env, credentials |
-| **[docs/MVP_TEST.md](docs/MVP_TEST.md)** | The live run-through — the judgment calls a script can't make |
-| **[docs/SPEC.md](docs/SPEC.md)** | Component design, data shapes, latency budget, deferred work |
-| `scripts/selftest.py` | The automated preflight checks behind `./run.sh --check` |
-| `prompts/background.txt` | What the fast lane answers from |
-
-## Status
-
-Verified working, on real hardware:
-
-- **Both capture paths.** Mic and monitor, measured by signal level rather than byte count — a dead device streams zeros forever and looks identical to a live one otherwise.
-- **Speaker-tagged transcription.** Real speech through the monitor transcribes correctly and lands tagged as the far side.
-- **Deep lane.** Researched a spoken question with real tools and reported back naming what it checked. Its shell gate denies safely.
-- **Fast lane.** Answers from the background file on the subscription credential, streaming.
-- **Hotkeys.** Bound and round-tripped through the trigger FIFO.
-
-Honest about what isn't there yet: fast-lane latency is **3–16 seconds and variable**, against a design target of about one second — the Agent SDK's CLI hop is the floor, and the cause of the spread is not yet diagnosed. Answers also run longer than the two-to-four-sentence instruction asks for. Terminal output only: no overlay window, no text-to-speech, no screen-share hiding. `SPEC.md` §6 lists what's deliberately deferred.
-
 ## Prior art
 
-If you'd rather fork than start clean — both ship an overlay and local transcription already, and you'd swap in the Claude lanes:
+If you'd rather fork than start clean:
 
-- [Natively](https://github.com/Natively-AI-assistant/natively-cluely-ai-assistant) — overlay, real-time transcription, stealth mode, local RAG, BYOK. Check the license: advertised free for personal and non-commercial use, which is **not** permissive.
+- [Natively](https://github.com/Natively-AI-assistant/natively-cluely-ai-assistant) — overlay, real-time transcription, stealth mode, local RAG, BYOK. **No Linux support** — macOS and Windows only, and their README asks for maintainers to port it. Also check the license: advertised free for personal and non-commercial use, which is **not** permissive.
 - [Meetily](https://openalternative.co/meetily) — MIT, fully local, no meeting bot.
 
 The interaction model is modeled on [Parakeet AI](https://www.parakeet-ai.com/) — transcribe continuously, answer on a hotkey — built native instead of in a browser, with the second research lane added.
