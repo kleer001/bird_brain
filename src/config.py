@@ -91,17 +91,12 @@ def load() -> Config:
         # you set it on purpose, and it's a legitimate way to authenticate.
         os.environ.pop("ANTHROPIC_API_KEY")
 
-    # Imported here, not at module scope: fast_lane pulls in the anthropic SDK,
-    # and config is the module everything else imports first.
-    from .fast_lane import DEFAULT_MODEL, MODEL_PARAMS
+    # Not validated against a list: the fast lane runs through the Agent SDK, so
+    # the Claude Code CLI owns which model strings are legal, and an unknown one
+    # fails when the session opens rather than silently misbehaving.
+    from .fast_lane import DEFAULT_MODEL
 
     fast_model = os.environ.get("BIRD_BRAIN_FAST_MODEL", DEFAULT_MODEL).strip()
-    if fast_model not in MODEL_PARAMS:
-        raise ValueError(
-            f"BIRD_BRAIN_FAST_MODEL must be one of {sorted(MODEL_PARAMS)}, "
-            f"got {fast_model!r} — each model needs its own request shape "
-            "(effort and thinking differ, and are rejected outright on the wrong one)"
-        )
 
     stt_backend = os.environ.get("STT_BACKEND", "local").strip().lower()
     if stt_backend not in VALID_STT_BACKENDS:

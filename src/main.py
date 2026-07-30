@@ -59,7 +59,7 @@ async def main() -> None:
     print(f"[audio] them <- {monitor}")
     print(f"[stt]   backend: {cfg.stt_backend}")
 
-    fast = FastLane(api_key=cfg.anthropic_api_key, model=cfg.fast_model)
+    fast = FastLane(model=cfg.fast_model)
     deep = DeepLane()
 
     tasks = [
@@ -69,10 +69,10 @@ async def main() -> None:
     for task in tasks:
         task.add_done_callback(_report_death)
 
-    # Independent startups — an HTTPS round trip for one lane, spawning the
-    # Claude Code CLI for the other. Overlapped, they cost the slower of the two
-    # rather than the sum.
-    await asyncio.gather(fast.prewarm(), deep.start(auth=cfg.deep_auth))
+    # Both lanes spawn their own Claude Code CLI session; overlapped, startup
+    # costs the slower of the two rather than the sum. They cannot share one
+    # session — a deep-lane turn runs for minutes and would block every press.
+    await asyncio.gather(fast.start(), deep.start(auth=cfg.deep_auth))
 
     # One in-flight run per lane. A second press while a lane is busy is
     # dropped rather than queued — mid-conversation, a stale answer arriving
@@ -104,7 +104,7 @@ async def main() -> None:
             task.cancel()
         with contextlib.suppress(Exception):
             await asyncio.gather(*tasks, *inflight.values(), return_exceptions=True)
-        await deep.stop()
+        await asyncio.gather(fast.stop(), deep.stop())
 
 
 if __name__ == "__main__":

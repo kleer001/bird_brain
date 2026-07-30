@@ -1,46 +1,32 @@
 """Fast lane — the reflex answer.
 
-One streaming Claude call per keypress. Latency-critical, so:
-  - thinking off, and no tools at all — which also sidesteps the disabled-thinking
-    failure mode where a tool call gets written as plain text and silently never runs
-  - stable prefix (instructions + your background) carries the cache_control
-    breakpoints; the transcript tail goes in the user turn, uncached
+One Agent SDK turn per keypress, on the same Claude Code credential the deep lane
+uses. Nothing here bills per token.
+
+The lane is latency-critical, so the session is opened once at startup and reused:
+connecting costs about a second, and paying that on every press would double the
+time to first word.
+
+Three options do the shaping:
+  - `system_prompt` as a plain string *replaces* Claude Code's preset rather than
+    appending to it (the preset is opt-in via {"type": "preset"}). The lane gets
+    its own instructions and background with no coding-agent persona underneath.
+  - `allowed_tools=[]` — no tools at all. A conversation copilot has nothing to
+    run, and tool definitions are prompt weight on a latency budget.
+  - `setting_sources=[]` — ignore ~/.claude settings, so a rule written for
+    interactive use can't reshape answers here.
+
+Known tradeoff: the session is stateful, so each press sees the previous presses.
+That is the cost of not paying the reconnect every time.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
-from anthropic import AsyncAnthropic
-
-MAX_TOKENS = 1024  # a spoken-length answer; raise if you want more
-
-# Per-model request shape. The models disagree on more than their IDs, and every
-# difference here is a 400 or a silent misconfiguration rather than a preference:
-#
-#   thinking  — Opus 5 thinks by default, so turning it off has to be explicit,
-#               and "disabled" is only accepted at effort `high` or lower.
-#               Haiku 4.5 predates that surface: it has no adaptive mode, and
-#               omitting the field entirely is how you get no thinking.
-#   effort    — Opus 5 takes low..max. Haiku 4.5 rejects the parameter outright.
-#   cache_min — the shortest prefix that will cache at all. Below it nothing
-#               caches, silently, on every press. Opus 5 has the lowest minimum
-#               of any model; Haiku's is 8x higher, so a background file sized
-#               for one will quietly stop caching on the other.
-DEFAULT_MODEL = "claude-opus-5"
-MODEL_PARAMS = {
-    "claude-opus-5": {
-        "request": {"thinking": {"type": "disabled"}, "output_config": {"effort": "low"}},
-        "cache_minimum": 512,
-    },
-    "claude-haiku-4-5": {
-        "request": {},
-        "cache_minimum": 4096,
-    },
-}
-
-NO_CREDENTIAL = "[fast] no credential — fast lane disabled (see INSTALL.md §3)"
+DEFAULT_MODEL = "claude-haiku-4-5"
 
 INSTRUCTIONS = """\
 You are a live conversation copilot. You are shown the recent transcript of a \
@@ -68,125 +54,98 @@ def _load_background() -> str:
 
 
 class FastLane:
-    def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL) -> None:
+    """Wraps a long-lived ClaudeSDKClient. Import is lazy for the same reason the
+    deep lane's is — the app should start and report the problem rather than fail
+    at import when the Agent SDK isn't installed."""
+
+    def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self._model = model
-        self._request = MODEL_PARAMS[model]["request"]
-        self._cache_minimum = MODEL_PARAMS[model]["cache_minimum"]
-        # The key is passed explicitly because config.load() may have removed it
-        # from the environment to keep the deep lane on subscription auth (see
-        # config.py). api_key=None falls through to the SDK's own credential
-        # resolution — env vars, then an `ant auth login` profile.
-        self._client = AsyncAnthropic(api_key=api_key)
-        # A Claude Code subscription login does not reach this lane: that
-        # credential is not one the SDK reads. Detect the no-credential case at
-        # startup and say so once, rather than raising on every press. Mirrors
-        # how the deep lane disables itself when its session can't open.
-        #
-        # All three of the SDK's resolution results count. `credentials` is the
-        # one an `ant auth login` profile lands in — it resolves via
-        # default_credentials() only when api_key and auth_token are both None,
-        # so checking those two alone would disable the lane for exactly the
-        # users who authenticated the cheapest way.
-        self.available = bool(
-            self._client.api_key
-            or self._client.auth_token
-            or self._client.credentials
-        )
+        self._client = None
         background = _load_background()
-        # Two stable breakpoints. Byte-identical across every press, so the
-        # whole prefix is a cache read after the first call.
-        self._system = [
-            {
-                "type": "text",
-                "text": INSTRUCTIONS,
-                "cache_control": {"type": "ephemeral"},
-            },
-            {
-                "type": "text",
-                "text": f"<background>\n{background}\n</background>",
-                "cache_control": {"type": "ephemeral"},
-            },
-        ]
+        self._system = f"{INSTRUCTIONS}\n<background>\n{background}\n</background>"
 
-    async def prewarm(self) -> None:
-        """Write the cache before the first real press, so press #1 is a cache
-        read instead of a cold write.
-
-        max_tokens=0 runs prefill and returns immediately with empty content.
-        Note it is rejected alongside stream=True or thinking type "enabled" —
-        disabled is fine. No output_config here: nothing to constrain, and it
-        keeps the request in the plainly-accepted shape.
-        """
-        if not self.available:
-            print(NO_CREDENTIAL)
-            return
+    async def start(self) -> bool:
+        """Open the session. Runs at startup, concurrently with the deep lane's."""
         try:
-            resp = await self._client.messages.create(
-                model=self._model,
-                max_tokens=0,
-                system=self._system,
-                messages=[{"role": "user", "content": "warmup"}],
-                **self._request,
-            )
-        except Exception as exc:  # noqa: BLE001 — never let a warm-up be fatal
-            print(f"[fast] prewarm skipped: {exc!r}")
-            return
+            from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+        except ImportError:
+            print("[fast] claude-agent-sdk not installed — fast lane disabled")
+            return False
 
-        # A cache write of zero means the stable prefix is under this model's
-        # minimum cacheable length and nothing will ever cache — silently, on
-        # every press. The instructions alone are ~200 tokens, so this is what
-        # an unset or too-small BIRD_BRAIN_RESUME looks like.
-        if resp.usage.cache_creation_input_tokens:
-            print(
-                f"[fast] cache warm: {resp.usage.cache_creation_input_tokens} tokens "
-                f"({self._model})"
-            )
-        else:
-            print(
-                f"[fast] NOT CACHING: stable prefix is under {self._model}'s "
-                f"{self._cache_minimum}-token minimum. Point BIRD_BRAIN_RESUME at a "
-                "larger background file."
-            )
+        options = ClaudeAgentOptions(
+            model=self._model,
+            system_prompt=self._system,
+            allowed_tools=[],
+            setting_sources=[],
+            max_turns=1,
+            # Without this the SDK hands back whole AssistantMessages, so the
+            # answer appears all at once after the full generation. On a lane
+            # you read aloud, time-to-first-word is the number that matters, not
+            # time-to-complete — partial events get words on screen as they land.
+            include_partial_messages=True,
+        )
+        client = ClaudeSDKClient(options=options)
+        try:
+            await client.connect()
+        except Exception as exc:  # noqa: BLE001 — the deep lane must survive this
+            print(f"[fast] session failed to start ({exc!r}) — fast lane disabled")
+            return False
+
+        self._client = client
+        print(f"[fast] session ready — {self._model} on the Claude Code credential")
+        return True
+
+    async def stop(self) -> None:
+        if self._client is not None:
+            await self._client.disconnect()
+            self._client = None
 
     async def answer(self, window: str) -> str:
         """Stream an answer for the given transcript window. Returns full text."""
-        if not self.available:
-            print(NO_CREDENTIAL)
+        if self._client is None:
+            print("[fast] unavailable")
             return ""
         if not window.strip():
             print("[fast] transcript empty — nothing to answer")
             return ""
 
+        from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock
+
+        started = time.monotonic()
+        first_token = None
         parts: list[str] = []
-        async with self._client.messages.stream(
-            model=self._model,
-            max_tokens=MAX_TOKENS,
-            system=self._system,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"<transcript>\n{window}\n</transcript>",
-                }
-            ],
-            **self._request,
-        ) as stream:
-            async for text in stream.text_stream:
-                parts.append(text)
-                print(text, end="", flush=True)
-            final = await stream.get_final_message()
+
+        await self._client.query(f"<transcript>\n{window}\n</transcript>")
+        async for message in self._client.receive_response():
+            # Partial events carry the raw API stream shape: text arrives as
+            # content_block_delta chunks. The complete AssistantMessage still
+            # follows, so it is ignored here to avoid printing the answer twice.
+            if isinstance(message, StreamEvent):
+                delta = message.event.get("delta") or {}
+                chunk = delta.get("text")
+                if chunk:
+                    if first_token is None:
+                        first_token = time.monotonic() - started
+                    parts.append(chunk)
+                    print(chunk, end="", flush=True)
+            elif isinstance(message, AssistantMessage) and not parts:
+                # No partial events arrived (older CLI); fall back to the whole
+                # message so the lane still answers.
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        if first_token is None:
+                            first_token = time.monotonic() - started
+                        parts.append(block.text)
+                        print(block.text, end="", flush=True)
 
         print()
-        # Opus 5's safety classifiers can decline a request: HTTP 200, empty or
-        # partial content, stop_reason "refusal". Without this the lane just
-        # prints nothing and looks broken.
-        if final.stop_reason == "refusal":
-            category = getattr(final.stop_details, "category", None)
-            print(f"[fast] declined by safety classifier (category={category})")
-
-        u = final.usage
+        # Time to first word is the number that decides whether this lane is
+        # usable mid-conversation, so it gets printed on every press rather than
+        # left to be measured separately.
         print(
-            f"[fast] in={u.input_tokens} out={u.output_tokens} "
-            f"cache_read={u.cache_read_input_tokens} "
-            f"cache_write={u.cache_creation_input_tokens}"
+            f"[fast] first word {first_token:.1f}s | total "
+            f"{time.monotonic() - started:.1f}s"
+            if first_token is not None
+            else "[fast] no text returned"
         )
         return "".join(parts)
