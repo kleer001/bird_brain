@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <strong>Hears both sides</strong> &middot; <strong>Speaks only on your keypress</strong> &middot; <strong>Runs on your Claude subscription</strong>
+  <strong>Speech-to-text stays on your machine</strong> &middot; <strong>Works with any call app</strong> &middot; <strong>No API key, no per-token billing</strong>
 </p>
 
 ---
