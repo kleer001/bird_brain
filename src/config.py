@@ -38,6 +38,11 @@ class Config:
     """Key for the fast lane. None means "let the SDK resolve credentials
     itself" — e.g. an `ant auth login` profile."""
 
+    fast_model: str
+    """Model for the fast lane. Validated against fast_lane.MODEL_PARAMS, which
+    is the single source of truth for which models this lane knows how to shape
+    a request for."""
+
     deep_auth: str
     """"subscription" | "api" — see module docstring."""
 
@@ -86,6 +91,18 @@ def load() -> Config:
         # you set it on purpose, and it's a legitimate way to authenticate.
         os.environ.pop("ANTHROPIC_API_KEY")
 
+    # Imported here, not at module scope: fast_lane pulls in the anthropic SDK,
+    # and config is the module everything else imports first.
+    from .fast_lane import DEFAULT_MODEL, MODEL_PARAMS
+
+    fast_model = os.environ.get("BIRD_BRAIN_FAST_MODEL", DEFAULT_MODEL).strip()
+    if fast_model not in MODEL_PARAMS:
+        raise ValueError(
+            f"BIRD_BRAIN_FAST_MODEL must be one of {sorted(MODEL_PARAMS)}, "
+            f"got {fast_model!r} — each model needs its own request shape "
+            "(effort and thinking differ, and are rejected outright on the wrong one)"
+        )
+
     stt_backend = os.environ.get("STT_BACKEND", "local").strip().lower()
     if stt_backend not in VALID_STT_BACKENDS:
         raise ValueError(
@@ -103,6 +120,7 @@ def load() -> Config:
 
     return Config(
         anthropic_api_key=key,
+        fast_model=fast_model,
         deep_auth=deep_auth,
         stt_backend=stt_backend,
         deepgram_api_key=os.environ.get("DEEPGRAM_API_KEY"),

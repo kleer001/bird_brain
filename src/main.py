@@ -59,7 +59,7 @@ async def main() -> None:
     print(f"[audio] them <- {monitor}")
     print(f"[stt]   backend: {cfg.stt_backend}")
 
-    fast = FastLane(api_key=cfg.anthropic_api_key)
+    fast = FastLane(api_key=cfg.anthropic_api_key, model=cfg.fast_model)
     deep = DeepLane()
 
     tasks = [

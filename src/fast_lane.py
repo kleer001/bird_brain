@@ -1,9 +1,8 @@
 """Fast lane — the reflex answer.
 
 One streaming Claude call per keypress. Latency-critical, so:
-  - thinking disabled (allowed on Opus 5 at effort `high` or lower) + effort=low
-  - no tools at all — which also sidesteps the disabled-thinking failure mode
-    where a tool call gets written as plain text and silently never runs
+  - thinking off, and no tools at all — which also sidesteps the disabled-thinking
+    failure mode where a tool call gets written as plain text and silently never runs
   - stable prefix (instructions + your background) carries the cache_control
     breakpoints; the transcript tail goes in the user turn, uncached
 """
@@ -15,8 +14,31 @@ from pathlib import Path
 
 from anthropic import AsyncAnthropic
 
-MODEL = "claude-opus-5"
 MAX_TOKENS = 1024  # a spoken-length answer; raise if you want more
+
+# Per-model request shape. The models disagree on more than their IDs, and every
+# difference here is a 400 or a silent misconfiguration rather than a preference:
+#
+#   thinking  — Opus 5 thinks by default, so turning it off has to be explicit,
+#               and "disabled" is only accepted at effort `high` or lower.
+#               Haiku 4.5 predates that surface: it has no adaptive mode, and
+#               omitting the field entirely is how you get no thinking.
+#   effort    — Opus 5 takes low..max. Haiku 4.5 rejects the parameter outright.
+#   cache_min — the shortest prefix that will cache at all. Below it nothing
+#               caches, silently, on every press. Opus 5 has the lowest minimum
+#               of any model; Haiku's is 8x higher, so a background file sized
+#               for one will quietly stop caching on the other.
+DEFAULT_MODEL = "claude-opus-5"
+MODEL_PARAMS = {
+    "claude-opus-5": {
+        "request": {"thinking": {"type": "disabled"}, "output_config": {"effort": "low"}},
+        "cache_minimum": 512,
+    },
+    "claude-haiku-4-5": {
+        "request": {},
+        "cache_minimum": 4096,
+    },
+}
 
 NO_CREDENTIAL = "[fast] no credential — fast lane disabled (see INSTALL.md §3)"
 
@@ -46,7 +68,10 @@ def _load_background() -> str:
 
 
 class FastLane:
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL) -> None:
+        self._model = model
+        self._request = MODEL_PARAMS[model]["request"]
+        self._cache_minimum = MODEL_PARAMS[model]["cache_minimum"]
         # The key is passed explicitly because config.load() may have removed it
         # from the environment to keep the deep lane on subscription auth (see
         # config.py). api_key=None falls through to the SDK's own credential
@@ -97,26 +122,30 @@ class FastLane:
             return
         try:
             resp = await self._client.messages.create(
-                model=MODEL,
+                model=self._model,
                 max_tokens=0,
-                thinking={"type": "disabled"},
                 system=self._system,
                 messages=[{"role": "user", "content": "warmup"}],
+                **self._request,
             )
         except Exception as exc:  # noqa: BLE001 — never let a warm-up be fatal
             print(f"[fast] prewarm skipped: {exc!r}")
             return
 
-        # A cache write of zero means the stable prefix is under the model's
-        # minimum cacheable length (512 tokens on Opus 5) and nothing will ever
-        # cache — silently, on every press. The instructions alone are ~200
-        # tokens, so this is what an unset or tiny BIRD_BRAIN_RESUME looks like.
+        # A cache write of zero means the stable prefix is under this model's
+        # minimum cacheable length and nothing will ever cache — silently, on
+        # every press. The instructions alone are ~200 tokens, so this is what
+        # an unset or too-small BIRD_BRAIN_RESUME looks like.
         if resp.usage.cache_creation_input_tokens:
-            print(f"[fast] cache warm: {resp.usage.cache_creation_input_tokens} tokens")
+            print(
+                f"[fast] cache warm: {resp.usage.cache_creation_input_tokens} tokens "
+                f"({self._model})"
+            )
         else:
             print(
-                "[fast] NOT CACHING: stable prefix is under the 512-token minimum. "
-                "Point BIRD_BRAIN_RESUME at a larger background file."
+                f"[fast] NOT CACHING: stable prefix is under {self._model}'s "
+                f"{self._cache_minimum}-token minimum. Point BIRD_BRAIN_RESUME at a "
+                "larger background file."
             )
 
     async def answer(self, window: str) -> str:
@@ -130,10 +159,8 @@ class FastLane:
 
         parts: list[str] = []
         async with self._client.messages.stream(
-            model=MODEL,
+            model=self._model,
             max_tokens=MAX_TOKENS,
-            thinking={"type": "disabled"},
-            output_config={"effort": "low"},
             system=self._system,
             messages=[
                 {
@@ -141,6 +168,7 @@ class FastLane:
                     "content": f"<transcript>\n{window}\n</transcript>",
                 }
             ],
+            **self._request,
         ) as stream:
             async for text in stream.text_stream:
                 parts.append(text)
