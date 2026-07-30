@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="full_logo.png" alt="bird_brain — a little bird told me." width="420"/>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="full_logo_dark.png"/>
+    <img src="full_logo.png" alt="bird_brain — a little bird told me." width="420"/>
+  </picture>
 </p>
 
 <h1 align="center">bird_brain</h1>
@@ -130,7 +133,10 @@ If you'd rather fork than start clean — both ship an overlay and local transcr
 The interaction model is modeled on [Parakeet AI](https://www.parakeet-ai.com/) — transcribe continuously, answer on a hotkey — built native instead of in a browser, with the second research lane added.
 
 <p align="center">
-  <img src="bb_icon.png" alt="" width="60"/>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="bb_icon_dark.png"/>
+    <img src="bb_icon.png" alt="" width="56"/>
+  </picture>
 </p>
 
 <p align="center">
