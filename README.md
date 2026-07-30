@@ -33,20 +33,38 @@ It has two lanes on two hotkeys, because "what do I say right now" and "is that 
 
 ## Get Started
 
-**Prerequisites:** Ubuntu 22.04+ (or any PipeWire desktop), Python 3.10+, and the Claude Code CLI.
+**Prerequisites:** a Linux desktop running PipeWire, Python 3.10+, and git.
 
 ```bash
-git clone https://github.com/kleer001/bird_brain && cd bird_brain
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-npm install -g @anthropic-ai/claude-code && claude login
-cp .env.example .env
-./run.sh --check      # preflight: devices, signal levels, STT, both lanes, trigger
-./run.sh              # then press your bound keys
+curl -sSL https://raw.githubusercontent.com/kleer001/bird_brain/main/bootstrap.sh | bash
+```
+
+The script verifies your audio stack, clones the repo, builds the venv, installs dependencies, seeds `.env`, creates the trigger FIFO, and reports what it couldn't do for you. It never prompts, and it's idempotent — re-run it from inside the repo any time.
+
+Then:
+
+```bash
+./run.sh --check      # preflight
+./run.sh              # start listening
 ```
 
 `./run.sh --check` measures rather than assumes — it plays a tone out your speakers and listens on the monitor to prove the capture path works end to end, records six seconds of your voice and transcribes it back, and round-trips a token through the real trigger FIFO. It stops at the first failure the later checks depend on, so the output names one component instead of cascading.
 
-Full setup, including binding the hotkeys: **[docs/INSTALL.md](docs/INSTALL.md)**.
+<details>
+<summary><strong>Manual setup, if you'd rather not pipe a script to bash</strong></summary>
+
+```bash
+sudo apt install -y pulseaudio-utils sox pipewire-bin
+git clone https://github.com/kleer001/bird_brain && cd bird_brain
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+npm install -g @anthropic-ai/claude-code && claude login
+cp .env.example .env
+mkfifo /tmp/bird_brain.fifo
+```
+
+</details>
+
+Binding the hotkeys is the one step neither path can do for you — it's desktop-specific. See **[docs/INSTALL.md](docs/INSTALL.md)** §4.
 
 ## How it works
 
