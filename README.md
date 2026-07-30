@@ -1,13 +1,9 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="logos/full_logo_dark.png"/>
-    <img src="logos/full_logo.png" alt="bird_brain — a little bird told me." width="420"/>
+    <source media="(prefers-color-scheme: dark)" srcset="logos/banner_dark.svg"/>
+    <img src="logos/banner_light.svg" alt="bird_brain — a little bird told me." width="760"/>
   </picture>
 </p>
-
-<h1 align="center">bird_brain</h1>
-
-<p align="center"><em>A little bird told me.</em></p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/kleer001/bird_brain?color=blue" alt="License: MIT"/></a>
