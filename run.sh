@@ -15,6 +15,11 @@ if [[ ! -f .env ]]; then
     exit 1
 fi
 
+if [[ "${1:-}" == "--check" ]]; then
+    shift
+    exec .venv/bin/python -u selftest.py "$@"
+fi
+
 # -u: transcript lines and lane output are watched live, so stdout must not sit
 # in a block buffer when it is piped to a log or a pager.
 exec .venv/bin/python -u -m src.main "$@"
