@@ -1,12 +1,17 @@
 # Core
 anthropic>=0.40            # Claude API — fast lane
-websockets>=12             # Deepgram streaming (raw WS client)
+websockets>=14             # Deepgram streaming (raw WS client).
+                           # 14.0 is where the top-level `websockets.connect`
+                           # became the new asyncio client, which is the one
+                           # taking `additional_headers`. On 12/13 stt.py
+                           # raises TypeError at connect.
 python-dotenv>=1.0         # .env loading
 
 # Deep lane (optional) — the "Claude Code in the conversation" session.
 # Also requires the Claude Code CLI on PATH:  npm i -g @anthropic-ai/claude-code
 claude-agent-sdk>=0.1
 
-# Local STT (optional) — set STT_BACKEND=local to use instead of Deepgram.
-# CPU works; a CUDA GPU is much faster.
-# faster-whisper>=1.0
+# Local STT — the default backend (STT_BACKEND=local). No key, nothing leaves
+# the machine. CPU works; a CUDA GPU is much faster.
+faster-whisper>=1.0
+numpy

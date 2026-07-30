@@ -18,14 +18,27 @@ from .fast_lane import FastLane
 from .transcript import TranscriptBuffer
 
 
-async def pipeline(device: str, speaker: str, buf: TranscriptBuffer) -> None:
+async def pipeline(
+    device: str, speaker: str, buf: TranscriptBuffer, cfg: config.Config
+) -> None:
     """Capture one device, transcribe it, tag finals with `speaker`."""
 
     async def on_final(text: str) -> None:
         await buf.append(speaker, text)
         print(f"  [{speaker}] {text}")
 
-    await stt.transcribe(audio.capture(device), on_final)
+    await stt.transcribe(audio.capture(device), on_final, cfg)
+
+
+def _report_death(task: asyncio.Task) -> None:
+    """Nothing awaits the capture tasks until shutdown, so an exception in one
+    would otherwise vanish: the app prints "[ready] listening" and transcribes
+    silence forever. Surface it the moment it happens."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        print(f"\n[fatal] task {task.get_name()!r} died: {exc!r}")
 
 
 async def main() -> None:
@@ -35,21 +48,31 @@ async def main() -> None:
     cfg = config.load()
     buf = TranscriptBuffer()
 
-    mic = audio.default_mic()
-    monitor = audio.default_sink_monitor()
+    audio.require_tools()
+
+    # The default *source* is often not the mic you talk into — a headset can be
+    # the default sink while the default source stays on the motherboard input.
+    # BIRD_BRAIN_MIC / BIRD_BRAIN_MONITOR override without touching system state.
+    mic = cfg.mic_device or audio.default_mic()
+    monitor = cfg.monitor_device or audio.default_sink_monitor()
     print(f"[audio] me   <- {mic}")
     print(f"[audio] them <- {monitor}")
+    print(f"[stt]   backend: {cfg.stt_backend}")
 
     fast = FastLane(api_key=cfg.anthropic_api_key)
     deep = DeepLane()
 
     tasks = [
-        asyncio.create_task(pipeline(mic, "me", buf), name="stt-me"),
-        asyncio.create_task(pipeline(monitor, "them", buf), name="stt-them"),
+        asyncio.create_task(pipeline(mic, "me", buf, cfg), name="stt-me"),
+        asyncio.create_task(pipeline(monitor, "them", buf, cfg), name="stt-them"),
     ]
+    for task in tasks:
+        task.add_done_callback(_report_death)
 
-    await fast.prewarm()
-    await deep.start(auth=cfg.deep_auth)
+    # Independent startups — an HTTPS round trip for one lane, spawning the
+    # Claude Code CLI for the other. Overlapped, they cost the slower of the two
+    # rather than the sum.
+    await asyncio.gather(fast.prewarm(), deep.start(auth=cfg.deep_auth))
 
     # One in-flight run per lane. A second press while a lane is busy is
     # dropped rather than queued — mid-conversation, a stale answer arriving
@@ -62,7 +85,9 @@ async def main() -> None:
             print(f"[{lane}] busy — press ignored")
             coro.close()
             return
-        inflight[lane] = asyncio.create_task(coro, name=f"{lane}-run")
+        task = asyncio.create_task(coro, name=f"{lane}-run")
+        task.add_done_callback(_report_death)
+        inflight[lane] = task
 
     print(f"[ready] listening. FIFO: {hotkey.fifo_path()}")
     try:

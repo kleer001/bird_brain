@@ -42,8 +42,14 @@ Audio devices can be checked independently of the app:
 
 ```bash
 pactl get-default-sink        # .monitor of this is the "them" source
+pactl get-default-source      # often NOT the mic you talk into — see BIRD_BRAIN_MIC
 parec --device="$(pactl get-default-sink).monitor" --rate=16000 --channels=1 --format=s16le | xxd | head
 ```
+
+To check a device carries signal rather than just bytes, record a few seconds and
+measure it — `parec ... > /tmp/x.raw`, then compute RMS over the `int16` samples.
+A dead or wrong device yields a steady stream of near-zero samples, which looks
+identical to a working one at the `xxd` level.
 
 There is no test suite. Verification is running the thing and watching the
 `[me]` / `[them]` lines and lane output.
@@ -67,15 +73,37 @@ There is no test suite. Verification is running the thing and watching the
   environment. `DEEP_LANE_AUTH=subscription` (default) pops the key after
   capturing it and passes it to the fast lane explicitly. `config.load()` must
   therefore run before `DeepLane.start()`. See `SPEC.md` §5.1.
+  The pop is keyed on **presence, not truthiness**: an empty
+  `ANTHROPIC_API_KEY=""` still holds its precedence slot and authenticates as an
+  empty key.
+- **The fast lane needs its own credential.** A Claude Code login does not reach
+  it — that lives in `~/.claude/.credentials.json`, which the Python `anthropic`
+  SDK does not read. Without a key, a token, or an `ant auth login` profile, the
+  deep lane works and the fast lane fails on first press.
 - **Prompt caching.** The stable prefix (instructions + background) carries the
   `cache_control` breakpoints; the transcript tail is volatile and must never
-  carry one.
+  carry one. The prefix must clear **512 tokens** (Opus 5's minimum) or nothing
+  caches at all — instructions alone are ~200, so this rides on
+  `BIRD_BRAIN_RESUME` being substantial.
 - **Fast lane has no tools** — with thinking disabled, a tool call can be
   emitted as plain text and silently never run.
+- **The deep lane's Bash gate is a `PreToolUse` hook, not `can_use_tool`.** The
+  callback is only consulted when the CLI decides to ask, and headless it does
+  not ask — Bash executes unprompted with the callback wired. The hook also
+  needs `setting_sources=[]`, or `~/.claude/settings.json` allow rules apply
+  ahead of it. See `SPEC.md` §3.5.
+- **Local Whisper runs with `vad_filter=True`.** On silence it otherwise invents
+  dialogue that lands in the transcript as real speech. Drain the segment
+  generator inside the worker thread, never on the event loop.
+- **Nothing awaits the capture tasks until shutdown**, so `main._report_death`
+  is what turns a dead pipeline into a visible error instead of an app that
+  prints `[ready]` and transcribes silence forever.
 - **The FIFO is opened `O_RDWR`** so a writer stays on the pipe and reads never
   hit EOF when a shortcut's `echo` exits.
-- **Wayland has no global key grab.** The FIFO trigger is the workaround, not a
-  placeholder for one; alternatives are listed in `INSTALL.md` §4.
+- **No global key grab under Wayland.** The FIFO trigger is the workaround, not a
+  placeholder for one, and it is desktop-agnostic — it works unchanged on X11 and
+  KDE, where a global-hotkey library would also be an option. Alternatives are
+  listed in `INSTALL.md` §4.
 
 ## Claude models
 

@@ -11,6 +11,13 @@ trigger — which is exactly the shape we want here.
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
+# Auto-approved: read-only, and safe to run against transcript text we did not
+# author. Bash is deliberately absent here — it is gated by the PreToolUse hook.
+READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"]
+
 STANDING_INSTRUCTION = """\
 You are the research lane of a live conversation copilot. Below is the recent \
 transcript of a spoken conversation between ME and THEM.
@@ -29,27 +36,38 @@ class DeepLane:
 
     def __init__(self) -> None:
         self._client = None
-        self._ctx = None
 
     async def start(self, auth: str = "subscription") -> bool:
         """Open the session. `auth` is informational — the actual routing was
         decided in config.load(), which either left ANTHROPIC_API_KEY in the
         environment (api mode) or removed it (subscription mode)."""
         try:
-            from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+            from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
         except ImportError:
             print("[deep] claude-agent-sdk not installed — deep lane disabled")
             return False
 
         options = ClaudeAgentOptions(
             max_turns=30,
-            allowed_tools=["Read", "Grep", "Glob", "WebSearch", "WebFetch", "Bash"],
+            allowed_tools=READ_ONLY_TOOLS,
+            # The Bash gate is a PreToolUse hook, not can_use_tool. A callback is
+            # only consulted when the CLI decides to ask, and in SDK/headless
+            # mode it does not ask — verified: Bash ran unprompted with the
+            # callback wired, both for a command matching an allow rule and one
+            # matching none. A PreToolUse hook runs on every matching call.
+            hooks={"PreToolUse": [HookMatcher(matcher="Bash", hooks=[self._confirm_bash])]},
+            # Load no settings files: otherwise ~/.claude/settings.json's
+            # permissions.allow rules apply here too, and a `Bash(echo:*)` grant
+            # made for interactive use is not a grant for commands shaped by the
+            # far side of a conversation. Cost: the session also skips project
+            # CLAUDE.md, which the standing instruction covers.
+            setting_sources=[],
         )
-        self._ctx = ClaudeSDKClient(options)
+        client = ClaudeSDKClient(options=options)
         try:
-            self._client = await self._ctx.__aenter__()
+            await client.connect()
         except Exception as exc:  # noqa: BLE001 — fast lane must survive this
-            self._ctx = self._client = None
+            self._client = None
             print(f"[deep] session failed to start ({exc!r}) — deep lane disabled")
             if auth == "subscription":
                 print(
@@ -58,16 +76,43 @@ class DeepLane:
                 )
             return False
 
+        self._client = client
         if auth == "subscription":
             print("[deep] session ready — Claude Code credential (subscription)")
         else:
             print("[deep] session ready — ANTHROPIC_API_KEY (per-token billing)")
         return True
 
+    async def _confirm_bash(
+        self, payload: dict[str, Any], tool_use_id: str | None, context: Any
+    ) -> dict[str, Any]:
+        """PreToolUse hook: gate every Bash call on an explicit y/N.
+
+        The transcript this lane reasons over contains the *other* party's
+        speech, so a shell command can be shaped by input we do not control.
+        Deny is the default for every answer that isn't "y".
+
+        input() runs in a thread: blocking the event loop here would stall
+        capture and the fast lane while we wait on the keyboard.
+        """
+        command = payload.get("tool_input", {}).get("command", "")
+        print(f"\n[deep] !! Bash wants to run:\n    {command}")
+        answer = (await asyncio.to_thread(input, "[deep] allow? (y/N) ")).strip().lower()
+        decision = "allow" if answer == "y" else "deny"
+        if decision == "deny":
+            print("[deep] denied")
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": decision,
+                "permissionDecisionReason": f"bird_brain operator answered {answer!r}",
+            }
+        }
+
     async def stop(self) -> None:
-        if self._ctx is not None:
-            await self._ctx.__aexit__(None, None, None)
-            self._ctx = self._client = None
+        if self._client is not None:
+            await self._client.disconnect()
+            self._client = None
 
     async def ask(self, window: str) -> None:
         """Hand the transcript window to the session; stream text as it lands."""

@@ -80,8 +80,18 @@ you'd swap in the Claude lanes:
 
 ## Status / confidence
 
-The PipeWire capture path and the browser limitations are well-documented and long-standing
-(high confidence). The GNOME/Wayland global-shortcut situation moves between releases — this
-project sidesteps it with a custom-shortcut → FIFO trigger (see `INSTALL.md`). STT and Claude
-snippets are prototype-shaped: coherent and close to runnable, with `TODO` markers where your
-keys and tuning go. Nothing here has been run end-to-end yet.
+The browser limitations are well-documented and long-standing (high confidence). The global-shortcut
+situation moves between desktops and releases — this project sidesteps it with a
+custom-shortcut → FIFO trigger, which is desktop-agnostic (see `INSTALL.md` §4).
+
+Verified working:
+
+- **Monitor capture.** A libpulse client reading `<default-sink>.monitor` captures playback at full
+  level (`SPEC.md` §7). This is the part that's hard on macOS and in browsers.
+- **Deep lane.** A persistent Agent SDK session opens on a Claude Code subscription credential,
+  completes turns, and shuts down clean. Its `Bash` confirmation gate denies and allows correctly.
+- **Local STT.** `faster-whisper` decodes on GPU, and `vad_filter` suppresses the
+  silence-hallucination failure mode that would otherwise fill the transcript with invented speech.
+
+Not yet exercised end to end: the fast lane (it needs its own credential — see `INSTALL.md` §3) and
+a full two-speaker conversation through both capture pipelines into a keypress-triggered answer.

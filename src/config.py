@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 VALID_DEEP_AUTH = {"subscription", "api"}
+VALID_STT_BACKENDS = {"deepgram", "local"}
 DEFAULT_WINDOW_CHARS = 4000
 
 
@@ -40,8 +41,28 @@ class Config:
     deep_auth: str
     """"subscription" | "api" — see module docstring."""
 
+    stt_backend: str
+    """"local" | "deepgram". Validated here so a missing key fails at startup
+    instead of killing a capture task mid-run."""
+
+    deepgram_api_key: str | None
+    """Only set when stt_backend is "deepgram", where startup has already
+    required it."""
+
+    whisper_model: str
+    """faster-whisper size: tiny.en | base.en | small.en | medium.en | large-v3.
+    Not validated here — the name is the library's to reject, and it does so on
+    the first model load."""
+
     window_chars: int
     """How much transcript tail the lanes receive."""
+
+    mic_device: str | None
+    """Override for the "me" source. None means ask pactl for the default —
+    which is not necessarily the mic you talk into."""
+
+    monitor_device: str | None
+    """Override for the "them" source. None means the default sink's .monitor."""
 
 
 def load() -> Config:
@@ -55,13 +76,23 @@ def load() -> Config:
             f"DEEP_LANE_AUTH must be one of {sorted(VALID_DEEP_AUTH)}, got {deep_auth!r}"
         )
 
-    if deep_auth == "subscription" and key:
-        # Hide it from the Agent SDK's child process. The fast lane gets it
-        # passed explicitly, so nothing else breaks.
+    if deep_auth == "subscription" and "ANTHROPIC_API_KEY" in os.environ:
+        # Presence, not truthiness: an empty ANTHROPIC_API_KEY still occupies
+        # its slot in the credential precedence order, ahead of the Claude Code
+        # login, and authenticates as an empty key. `key` is already None in
+        # that case, so popping costs the fast lane nothing.
         #
         # ANTHROPIC_AUTH_TOKEN is deliberately left alone: if you set that,
         # you set it on purpose, and it's a legitimate way to authenticate.
-        os.environ.pop("ANTHROPIC_API_KEY", None)
+        os.environ.pop("ANTHROPIC_API_KEY")
+
+    stt_backend = os.environ.get("STT_BACKEND", "local").strip().lower()
+    if stt_backend not in VALID_STT_BACKENDS:
+        raise ValueError(
+            f"STT_BACKEND must be one of {sorted(VALID_STT_BACKENDS)}, got {stt_backend!r}"
+        )
+    if stt_backend == "deepgram" and not os.environ.get("DEEPGRAM_API_KEY"):
+        raise ValueError("STT_BACKEND=deepgram needs DEEPGRAM_API_KEY set")
 
     try:
         window_chars = int(
@@ -73,5 +104,10 @@ def load() -> Config:
     return Config(
         anthropic_api_key=key,
         deep_auth=deep_auth,
+        stt_backend=stt_backend,
+        deepgram_api_key=os.environ.get("DEEPGRAM_API_KEY"),
+        whisper_model=os.environ.get("BIRD_BRAIN_WHISPER_MODEL", "base.en"),
         window_chars=window_chars,
+        mic_device=os.environ.get("BIRD_BRAIN_MIC"),
+        monitor_device=os.environ.get("BIRD_BRAIN_MONITOR"),
     )
