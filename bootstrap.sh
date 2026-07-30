@@ -8,6 +8,10 @@
 #   bash bootstrap.sh
 #
 # Idempotent: safe to re-run. Never prompts, so it works piped from curl.
+#
+# NOTE: when piped to bash, the SCRIPT ITSELF is on stdin. Any command that
+# reads stdin will eat the rest of it and the script stops early, silently,
+# with status 0. Every command below that might read stdin gets </dev/null.
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -100,7 +104,7 @@ if [ -f "run.sh" ] && [ -d "src" ] && [ -f "requirements.txt" ]; then
     ok "Already inside the bird_brain repo — skipping clone"
 else
     info "Cloning bird_brain..."
-    git clone https://github.com/kleer001/bird_brain.git
+    git clone https://github.com/kleer001/bird_brain.git </dev/null
     cd bird_brain
     ok "Cloned into $(pwd)"
 fi
@@ -113,13 +117,13 @@ echo -e "\n${BOLD}Step 3: Python environment${NC}"
 
 if [ ! -d ".venv" ]; then
     info "Creating virtual environment..."
-    "$PYTHON" -m venv .venv
+    "$PYTHON" -m venv .venv </dev/null
 fi
 ok "Virtual environment: .venv/"
 
-info "Installing dependencies (this pulls faster-whisper and torch — a few minutes)..."
-.venv/bin/pip install --quiet --upgrade pip
-.venv/bin/pip install --quiet -r requirements.txt
+info "Installing dependencies (faster-whisper and the Claude SDKs — a minute or two)..."
+.venv/bin/pip install --quiet --upgrade pip </dev/null
+.venv/bin/pip install --quiet -r requirements.txt </dev/null
 ok "Dependencies installed"
 
 if .venv/bin/python -c "import ctranslate2, sys; sys.exit(0 if ctranslate2.get_cuda_device_count() else 1)" 2>/dev/null; then
@@ -138,7 +142,7 @@ echo -e "\n${BOLD}Step 4: Claude Code${NC}"
 # credential for the whole app — there is no API key path to fall back on.
 if command -v claude &>/dev/null; then
     ok "claude CLI found"
-    if claude -p 'say ok' &>/dev/null; then
+    if claude -p 'say ok' </dev/null &>/dev/null; then
         ok "claude is authenticated"
     else
         warn "claude is installed but not logged in"
