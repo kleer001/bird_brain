@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="full_logo_dark.png"/>
-    <img src="full_logo.png" alt="bird_brain — a little bird told me." width="420"/>
+    <source media="(prefers-color-scheme: dark)" srcset="logos/full_logo_dark.png"/>
+    <img src="logos/full_logo.png" alt="bird_brain — a little bird told me." width="420"/>
   </picture>
 </p>
 
@@ -134,8 +134,8 @@ The interaction model is modeled on [Parakeet AI](https://www.parakeet-ai.com/) 
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="bb_icon_dark.png"/>
-    <img src="bb_icon.png" alt="" width="56"/>
+    <source media="(prefers-color-scheme: dark)" srcset="logos/bb_icon_dark.png"/>
+    <img src="logos/bb_icon.png" alt="" width="56"/>
   </picture>
 </p>
 
