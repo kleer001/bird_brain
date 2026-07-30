@@ -17,11 +17,11 @@ src/fast_lane.py   one streaming Messages API call per press, no tools
 src/deep_lane.py   persistent Claude Agent SDK session, tools on
 src/hotkey.py      FIFO trigger fed by a GNOME custom shortcut
 src/main.py        glue: two capture pipelines + the trigger loop
-SPEC.md            component design, data shapes, latency budget, deferred work
-INSTALL.md         Ubuntu setup: PipeWire, hotkeys, venv, keys
+docs/SPEC.md            component design, data shapes, latency budget, deferred work
+docs/INSTALL.md         Ubuntu setup: PipeWire, hotkeys, venv, keys
 ```
 
-`SPEC.md` is the design of record. When behavior and spec disagree, decide which
+`docs/SPEC.md` is the design of record. When behavior and spec disagree, decide which
 one is wrong and fix that one — don't leave them out of sync.
 
 ## Run
@@ -31,7 +31,7 @@ source .venv/bin/activate
 python -m src.main            # then press the bound shortcuts
 ```
 
-Setup is `INSTALL.md`. Triggers can be exercised without touching the keyboard:
+Setup is `docs/INSTALL.md`. Triggers can be exercised without touching the keyboard:
 
 ```bash
 echo answer > /tmp/bird_brain.fifo    # fast lane
@@ -72,7 +72,7 @@ There is no test suite. Verification is running the thing and watching the
   subscription credential, and the Agent SDK's child process inherits our
   environment. `DEEP_LANE_AUTH=subscription` (default) pops the key after
   capturing it and passes it to the fast lane explicitly. `config.load()` must
-  therefore run before `DeepLane.start()`. See `SPEC.md` §5.1.
+  therefore run before `DeepLane.start()`. See `docs/SPEC.md` §5.1.
   The pop is keyed on **presence, not truthiness**: an empty
   `ANTHROPIC_API_KEY=""` still holds its precedence slot and authenticates as an
   empty key.
@@ -91,7 +91,7 @@ There is no test suite. Verification is running the thing and watching the
   callback is only consulted when the CLI decides to ask, and headless it does
   not ask — Bash executes unprompted with the callback wired. The hook also
   needs `setting_sources=[]`, or `~/.claude/settings.json` allow rules apply
-  ahead of it. See `SPEC.md` §3.5.
+  ahead of it. See `docs/SPEC.md` §3.5.
 - **Local Whisper runs with `vad_filter=True`.** On silence it otherwise invents
   dialogue that lands in the transcript as real speech. Drain the segment
   generator inside the worker thread, never on the event loop.
@@ -103,7 +103,7 @@ There is no test suite. Verification is running the thing and watching the
 - **No global key grab under Wayland.** The FIFO trigger is the workaround, not a
   placeholder for one, and it is desktop-agnostic — it works unchanged on X11 and
   KDE, where a global-hotkey library would also be an option. Alternatives are
-  listed in `INSTALL.md` §4.
+  listed in `docs/INSTALL.md` §4.
 
 ## Claude models
 

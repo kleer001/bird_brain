@@ -2,7 +2,7 @@
 
 Wayland has no global key grab, so we don't try. A GNOME custom shortcut runs
 `echo answer > /tmp/bird_brain.fifo` and we read lines from the other end. See
-INSTALL.md §4 for binding the keys, and for the X11 / evdev / portal
+docs/INSTALL.md §4 for binding the keys, and for the X11 / evdev / portal
 alternatives if you outgrow this.
 
 The FIFO is opened O_RDWR rather than O_RDONLY: that keeps a writer on the pipe

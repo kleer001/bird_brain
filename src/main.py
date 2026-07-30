@@ -2,7 +2,7 @@
 
     python -m src.main
 
-Press your bound shortcuts (INSTALL.md §4):
+Press your bound shortcuts (docs/INSTALL.md §4):
     Meta+Space -> fast answer
     Meta+D     -> deep research
 """

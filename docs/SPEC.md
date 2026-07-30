@@ -16,14 +16,14 @@ tool-capable session (deep). Voice-in, text-out for the prototype.
 │ parec:.mon │ ───────▶ │ STT (them) │ ───────▶ │                  │  │
 └────────────┘          └────────────┘          └──────────────────┘  │
                                                                         │ window()
-   GNOME custom shortcut ──▶ FIFO ──▶ hotkey listener ──▶ trigger ──────┤
+  desktop custom shortcut ──▶ FIFO ──▶ hotkey listener ──▶ trigger ──────┤
                                                                         ▼
                                                         ┌──────────────────────┐
-                                            SPACE ─────▶│ fast_lane.answer()    │──▶ stdout
-                                                        │  1 messages.stream    │
+                                       Meta+Space ─────▶│ fast_lane.answer()    │──▶ stdout
+                                                        │  ClaudeSDKClient      │
                                                         └──────────────────────┘
                                                         ┌──────────────────────┐
-                                            DEEP  ─────▶│ deep_lane.ask()       │──▶ stdout
+                                           Meta+D ─────▶│ deep_lane.ask()       │──▶ stdout
                                                         │  ClaudeSDKClient       │  (async)
                                                         └──────────────────────┘
 ```
@@ -80,40 +80,49 @@ of the time. Two further consequences of the fixed-window design:
 
 ### 3.4 Fast lane (`fast_lane.py`)
 
-One `client.messages.stream` call:
+One Agent SDK turn per press, on a session opened once at startup and reused:
 
-- `model="claude-opus-5"`.
-- `thinking={"type": "disabled"}` + `output_config={"effort": "low"}` — latency-critical, no
-  tools, so we skip the thinking phase and start emitting text immediately. (On Opus 5, disabled
-  thinking is allowed at effort `high` or lower.)
-- **No tools** — this sidesteps the disabled-thinking "tool call as plain text" failure mode
-  entirely; the only residual risk is stray `<thinking>` tags, guarded by a generic
-  "no internal/system XML tags" line in the system prompt.
-- **Prompt caching**: system instructions + your resume/knowledge base are two stable
-  `cache_control` breakpoints. The transcript window goes in the **user** turn (uncached).
-- Stream tokens straight to stdout.
-- `stop_reason == "refusal"` is checked before trusting the streamed text. Opus 5's safety
-  classifiers can decline a request and return HTTP 200 with empty content; unchecked, the lane
-  prints nothing and looks broken.
+- `model="claude-haiku-4-5"` by default (`BIRD_BRAIN_FAST_MODEL`).
+- `system_prompt` as a **plain string**, which replaces Claude Code's preset rather than
+  appending to it — the preset is opt-in via `{"type": "preset"}`. The lane gets its own
+  instructions and background with no coding-agent persona underneath.
+- **No tools** (`allowed_tools=[]`) — a copilot has nothing to run, and tool definitions are
+  prompt weight on a latency budget.
+- `setting_sources=[]` — a rule written for interactive Claude Code use must not reshape
+  answers here.
+- `include_partial_messages=True`, because the SDK otherwise hands back whole messages and the
+  answer would appear only after generation finished. Time-to-first-word is the number that
+  matters on a lane you read aloud.
+- Stream deltas straight to stdout, and print the measured first-word time on every press.
 
-Prefix cache stays warm as long as presses are < 5 min apart. Pre-warm once at startup with a
-`max_tokens: 0` request against the stable prefix (see `fast_lane.prewarm`).
+**No prompt caching control.** `cache_control` breakpoints are not reachable through the Agent
+SDK; the CLI decides. Measurement showed a 17,000-character system prompt costs approximately
+nothing against the variance of the CLI hop itself, so the prefix is sized for content rather
+than for a cache floor.
 
-**The prefix has to clear 512 tokens or nothing caches at all.** That is Opus 5's minimum
-cacheable prefix, and `INSTRUCTIONS` alone is ~200 tokens — so the first breakpoint can never
-cache on its own, and the second only does if `BIRD_BRAIN_RESUME` points at roughly 1250+
-characters of background. Below that the cache silently never engages, on every press. `prewarm`
-reports `cache_creation_input_tokens` and prints a `NOT CACHING` warning when it comes back zero,
-so this shows up at startup instead of as unexplained latency.
+**The session is stateful.** Reconnecting costs about a second, and paying that per press would
+double time-to-first-word — so presses share a session and each one sees the ones before it.
+That is a deliberate trade, and the thing to revisit first if answers start drifting.
+**Latency — measured, not budgeted.** The original target was a first word inside one second.
+The Agent SDK path does not reach it, and the gap is the point of the table:
 
-**Latency budget** (target, warm cache):
-
-| Stage | Budget |
+| Stage | Measured |
 |---|---|
 | Keypress → FIFO → listener | < 20 ms |
-| Build window + request | < 30 ms |
-| Claude TTFT (cached prefix, no thinking) | ~0.5–2 s |
-| First useful sentence streamed | ~1–3 s total |
+| Build window + query | < 30 ms |
+| Session connect | ~1 s, once at startup |
+| First word | **3–16 s**, high variance |
+| First word → complete | ~0.4 s |
+
+A no-tools turn through the same CLI costs about 4 s on the same machine (measured against the
+deep lane given nothing to research), so ~3–4 s is the floor this architecture offers and the
+spread above it is unexplained. The variance is not the prompt: an 848-character system prompt
+and a 17,000-character one measured the same within noise.
+
+Levers not yet tried, in the order worth trying: tighten the length instruction (answers run
+well past the two-to-four sentences asked for, and long output is wall-clock), reset the session
+per press to test whether accumulated history is the cost, and the SDK's own `effort` and
+`thinking` options.
 
 ### 3.5 Deep lane (`deep_lane.py`)
 
@@ -164,7 +173,7 @@ hotkey lib.
 "answer" | "deep"
 
 # fast-lane prompt assembly
-system = [ {instructions, cache_control}, {resume, cache_control} ]   # stable, cached
+system_prompt = instructions + <background>…</background>            # one string
 user   = window(n_chars=4000)                                        # volatile, uncached
 ```
 
@@ -183,43 +192,36 @@ user   = window(n_chars=4000)                                        # volatile,
 | `BIRD_BRAIN_RESUME` | path to a text file of your background/knowledge base |
 | `BIRD_BRAIN_WINDOW_CHARS` | transcript tail size, default 4000 |
 
-### 5.1 Auth split — why the two lanes can bill differently
+### 5.1 Credentials — one surface, one login
 
-The lanes talk to different surfaces:
+Both lanes drive the Claude Code CLI through the Agent SDK, so both authenticate the same way:
+whatever `claude login` established. **No API key is required, and nothing bills per token.**
 
-| Lane | Surface | Credential |
-|---|---|---|
-| Fast | Anthropic API (`messages.stream`) | API key, or an `ant auth login` profile — always per-token |
-| Deep | Claude Agent SDK → Claude Code CLI | Claude Code's own login (subscription) **or** an API key |
+Each lane opens its own session. They cannot share one — a deep-lane turn runs for minutes and
+would block every press — so startup spawns two CLI children and overlaps their connects.
 
-The trap: an explicit `ANTHROPIC_API_KEY` in the environment outranks an OAuth /
-subscription credential, and the Agent SDK spawns a child process that inherits our
-environment. So simply having the key set routes the deep lane to per-token billing whether you
-wanted that or not — silently.
+The environment still matters, because an explicit `ANTHROPIC_API_KEY` outranks a subscription
+credential and the SDK's child processes inherit our environment. Setting one silently routes
+**both** lanes to per-token billing. `config.load()` decides:
 
-`config.load()` handles it, and **must run before `DeepLane.start()`**:
-
-- `DEEP_LANE_AUTH=subscription` (default) — capture the key, `os.environ.pop` it, pass it to
-  `FastLane(api_key=...)` explicitly. The child process sees no key and falls through to
-  whatever `claude login` established. Requires `claude login` once.
-- `DEEP_LANE_AUTH=api` — leave the environment untouched; both lanes bill to the API key.
+- `DEEP_LANE_AUTH=subscription` (default) — pop `ANTHROPIC_API_KEY` from the environment so the
+  children fall through to the Claude Code login. Requires `claude login` once.
+- `DEEP_LANE_AUTH=api` — leave the environment untouched and bill to the key.
 
 The pop is keyed on the variable being **present**, not on it being non-empty. An empty
-`ANTHROPIC_API_KEY=""` still occupies its slot in the credential precedence order — ahead of the
-Claude Code login — and authenticates as an empty key, so leaving it in place breaks the deep
-lane in exactly the setup subscription mode exists to serve.
+`ANTHROPIC_API_KEY=""` still occupies its slot in the precedence order — ahead of the Claude Code
+login — and authenticates as an empty key, which breaks exactly the setup subscription mode
+exists to serve.
 
-`ANTHROPIC_AUTH_TOKEN` is deliberately never touched: if it's set, it was set on purpose and is
-a legitimate credential.
+`ANTHROPIC_AUTH_TOKEN` is deliberately never touched: if it's set, it was set on purpose.
 
-**The fast lane needs its own credential.** It calls the Messages API directly, so a Claude Code
-login does not reach it: that credential lives in `~/.claude/.credentials.json`, which the Python
-`anthropic` SDK does not read. The fast lane needs `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or
-an `ant auth login` profile under `~/.config/anthropic/`. With none of those the fast lane detects
-it at startup, announces itself disabled, and every press is a no-op; the deep lane is unaffected.
+If a session fails to open (no CLI, not logged in), that lane prints why and disables itself.
+The other is unaffected — the lanes fail independently.
 
-If the Agent SDK session fails to open (no CLI, not logged in), the deep lane prints why,
-disables itself, and the fast lane continues unaffected.
+*Historical note: the fast lane originally called the Messages API directly, which the Python
+`anthropic` SDK cannot authenticate from a Claude Code login (that credential lives in
+`~/.claude/.credentials.json`, which the SDK does not read). That split is why `DEEP_LANE_AUTH`
+exists; it survives because the key-precedence trap it guards against is still real.*
 
 ## 6. Deliberately deferred
 

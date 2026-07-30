@@ -9,7 +9,7 @@ failure names one component instead of "nothing works". A FAIL in an early
 check makes the later ones meaningless, so the run stops there.
 
 What this cannot check is whether an answer is any good — that needs ears. See
-MVP_TEST.md for the steps that need a person.
+docs/MVP_TEST.md for the steps that need a person.
 """
 
 from __future__ import annotations
@@ -262,7 +262,7 @@ def main() -> int:
         print(f"\n{len(FAILED)} failed: {', '.join(FAILED)}.")
         return 1
 
-    print("\nPreflight clean. What's left needs ears — see MVP_TEST.md.")
+    print("\nPreflight clean. What's left needs ears — see docs/MVP_TEST.md.")
     return 0
 
 

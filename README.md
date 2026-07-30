@@ -48,7 +48,7 @@ cp .env.example .env
 
 `./run.sh --check` measures rather than assumes — it plays a tone out your speakers and listens on the monitor to prove the capture path works end to end, records six seconds of your voice and transcribes it back, and round-trips a token through the real trigger FIFO. It stops at the first failure the later checks depend on, so the output names one component instead of cascading.
 
-Full setup, including binding the hotkeys: **[INSTALL.md](INSTALL.md)**.
+Full setup, including binding the hotkeys: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
 ## How it works
 
@@ -93,7 +93,7 @@ Deepgram is supported as a cloud alternative (`STT_BACKEND=deepgram`), and start
 
 ## The background file
 
-The fast lane answers from `background.txt` — not a résumé, but a stance on judging claims and giving answers. Triage by whether the truth moves. Primary evidence over commentary. One source citing another is one source. Name the base rate. Follow the incentive. Say plainly what isn't known.
+The fast lane answers from `prompts/background.txt` — not a résumé, but a stance on judging claims and giving answers. Triage by whether the truth moves. Primary evidence over commentary. One source citing another is one source. Name the base rate. Follow the incentive. Say plainly what isn't known.
 
 It ships with worked exchanges in the transcript's own speaker format, and it shows. Told *"everyone's moved off that library, it's basically dead — should we rewrite?"*, the lane answers:
 
@@ -105,11 +105,11 @@ Point `BIRD_BRAIN_RESUME` at your own file to replace it.
 
 | File | What |
 |---|---|
-| **[INSTALL.md](INSTALL.md)** | PipeWire, hotkey binding, Python env, credentials |
-| **[MVP_TEST.md](MVP_TEST.md)** | The live run-through — the judgment calls a script can't make |
-| **[SPEC.md](SPEC.md)** | Component design, data shapes, latency budget, deferred work |
-| `selftest.py` | The automated preflight checks behind `./run.sh --check` |
-| `background.txt` | What the fast lane answers from |
+| **[docs/INSTALL.md](docs/INSTALL.md)** | PipeWire, hotkey binding, Python env, credentials |
+| **[docs/MVP_TEST.md](docs/MVP_TEST.md)** | The live run-through — the judgment calls a script can't make |
+| **[docs/SPEC.md](docs/SPEC.md)** | Component design, data shapes, latency budget, deferred work |
+| `scripts/selftest.py` | The automated preflight checks behind `./run.sh --check` |
+| `prompts/background.txt` | What the fast lane answers from |
 
 ## Status
 
