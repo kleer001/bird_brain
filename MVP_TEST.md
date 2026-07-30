@@ -44,7 +44,7 @@ proper nouns are where it shows. If it matters for your conversations, raise
 ## 2. Fast lane — is it fast enough to speak?
 
 Have the far side ask something answerable from your background file. Press
-`Super+Space`.
+`Meta+Space`.
 
 **Pass:** an answer starts streaming in about a second, reads as a reply to what
 was actually said, and is short enough to say out loud without editing. That
@@ -65,7 +65,7 @@ printed `[fast] NOT CACHING` and `BIRD_BRAIN_RESUME` is too small to clear the
 ## 3. Deep lane — does it research, and does it stay out of the way?
 
 Have the far side make a checkable factual claim: a version number, a library
-behavior, a benchmark figure. Press `Super+D`.
+behavior, a benchmark figure. Press `Meta+D`.
 
 **Pass:** it uses real tools and reports back naming what it checked against.
 Tens of seconds is expected and is the point of the lane.

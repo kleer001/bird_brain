@@ -3,8 +3,8 @@
     python -m src.main
 
 Press your bound shortcuts (INSTALL.md §4):
-    Super+Space -> fast answer
-    Super+D     -> deep research
+    Meta+Space -> fast answer
+    Meta+D     -> deep research
 """
 
 from __future__ import annotations

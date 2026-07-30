@@ -104,41 +104,92 @@ credential source is winning.
 
 ## 4. The hotkey (the one Linux-specific gotcha)
 
-Wayland (Ubuntu's default) deliberately has no global key-grab, so the trigger is a **desktop
-custom shortcut** that writes a token to a FIFO. That route is desktop-agnostic: it works
-unchanged on GNOME, KDE, Wayland, and X11, which is why it's the default even on sessions where a
-global-hotkey library would also work. Create the FIFO first:
+The trigger must fire while *another* window has focus — during a call you are looking at the
+call, not at this terminal. That rules out reading keys from the app's own terminal, and it is
+also why the app's stdin stays free for the deep lane's `y/N` Bash gate.
+
+So the trigger is a **desktop custom shortcut** that writes a token to a FIFO. That route is
+desktop-agnostic — GNOME, KDE, Wayland, X11, unchanged — and it stays scriptable, which is how
+the lanes get exercised without touching the keyboard. Create the FIFO first:
 
 ```bash
 mkfifo /tmp/bird_brain.fifo     # matches BIRD_BRAIN_FIFO default
 ```
 
-Then bind two commands, wherever your desktop keeps custom shortcuts:
+Find your desktop and session, which decides both the panel to use and whether the in-app
+alternative at the end of this section is open to you:
 
-- **GNOME** — Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts → +
-- **KDE Plasma** — System Settings → Keyboard → Shortcuts → Add New → Command/URL
+```bash
+echo "$XDG_CURRENT_DESKTOP / $XDG_SESSION_TYPE"
+```
+
+**KDE Plasma** — System Settings → Shortcuts → Custom Shortcuts → Edit → New → Global Shortcut →
+Command/URL. Set the command on the **Action** tab and the key on **Trigger**.
+
+**GNOME** — Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts → +
 
 | Name | Command | Suggested key |
 |---|---|---|
-| bird_brain answer | `bash -c 'echo answer > /tmp/bird_brain.fifo'` | `Super+Space` |
-| bird_brain deep | `bash -c 'echo deep > /tmp/bird_brain.fifo'` | `Super+D` |
+| bird_brain answer | `bash -c 'echo answer > /tmp/bird_brain.fifo'` | `Meta+Space` |
+| bird_brain deep | `bash -c 'echo deep > /tmp/bird_brain.fifo'` | `Meta+D` |
 
-Check which session you're in with `echo $XDG_SESSION_TYPE` / `echo $XDG_CURRENT_DESKTOP` — it
-decides which panel above applies, and whether the X11 alternative below is open to you.
+`Meta` is the Windows/Command key (Mod4), not `Alt` (Mod1) — desktops bind the two very
+differently, and most of the free chords are on `Meta`.
 
-> Avoid a bare `Space` binding — it'll fight every text field. A `Super`-modified chord stays
-> live while another window has focus, which is the whole point.
+**Check the chord is free before binding it.** A collision is silent in the worst way: KDE's
+kglobalaccel refuses the duplicate and stores an *empty* key rather than reporting an error, so
+the shortcut simply never fires and the config looks almost right. On KDE:
+
+```bash
+grep -inE 'Meta\+Space|Meta\+D' ~/.config/kglobalshortcutsrc ~/.config/khotkeysrc
+```
+
+Anything returned is already taken — `Alt+Space` is commonly KRunner, and `Meta+D` is commonly
+Show Desktop or a tiling script such as Krohnkite. Note that a tiling script re-registers its
+defaults every time KWin loads, so clearing its key in the file does not stick.
+
+**Reassign contested keys in the GUI, not by editing the files.** kglobalaccel owns
+`kglobalshortcutsrc` while it runs and rewrites it from memory, so hand-edits are silently
+reverted. Only the System Settings shortcut editor unregisters the previous owner — it prompts
+to *Reassign* when a key is taken, which is the step no amount of file editing reproduces. Back
+the files up before touching them at all:
+
+```bash
+cp ~/.config/khotkeysrc ~/.config/kglobalshortcutsrc ~/some-backup-dir/
+```
+
+**After changing a binding, restart `kded5`** — khotkeys keeps the old wiring otherwise, and a
+module reload is not enough. The config can be completely correct while the shortcut still fires
+the wrong action, or nothing at all:
+
+```bash
+kquitapp5 kded5 && (setsid kded5 &)
+```
+
+> Avoid a bare `Space` binding — it'll fight every text field. A modified chord stays live while
+> another window has focus, which is the whole point. Avoid `Alt+D` too: browsers use it for the
+> address bar, and a global grab takes it from all of them.
 
 Test without the app running:
 
 ```bash
-cat /tmp/bird_brain.fifo &      # reader
-# press Super+Space → "answer" prints
+cat /tmp/bird_brain.fifo &      # reader must be started FIRST
+# press Meta+Space → "answer" prints
 ```
+
+Start the reader before pressing anything. With no reader on the pipe, `echo answer > fifo`
+blocks instead of failing, and every press leaves a writer parked there; they all flush the
+moment a reader appears, tagged with whatever action was bound *when each was pressed*. A burst
+of stale tokens looks exactly like a shortcut firing repeatedly, and it will send you chasing a
+bug that isn't there. `./run.sh --check` exercises this path correctly. The running app is never
+affected — `hotkey.py` holds the FIFO open `O_RDWR` for its whole lifetime, so a reader is always
+present.
 
 ### If custom shortcuts don't fit
 
-- **X11 session** (pick "Ubuntu on Xorg" at login) → any global-hotkey lib (`pynput`) works.
+- **X11 session** → any global-hotkey lib (`pynput`) can grab the keys in-process, with no
+  desktop configuration at all. Wayland deliberately offers no global key grab, so this is an
+  X11-only route and the app stops responding to the hotkey if the session ever moves to Wayland.
 - **evdev** — read `/dev/input` directly; add yourself to the `input` group
   (`sudo usermod -aG input $USER`, re-login). Works under Wayland, slightly invasive.
 - **`xdg-desktop-portal` GlobalShortcuts** — the "correct" API, but support varies by GNOME
@@ -151,7 +202,7 @@ source .venv/bin/activate
 python -m src.main
 ```
 
-Talk. When you want an answer, press `Super+Space` (fast) or `Super+D` (deep). Output streams to
+Talk. When you want an answer, press `Meta+Space` (fast) or `Meta+D` (deep). Output streams to
 the terminal.
 
 ## 6. Local STT (the default, no cloud)
