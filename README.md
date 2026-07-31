@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/kleer001/bird_brain/releases/latest"><img src="https://img.shields.io/github/v/release/kleer001/bird_brain?color=blue" alt="Latest release"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/kleer001/bird_brain?color=blue" alt="License: MIT"/></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white" alt="Python 3.10+"/></a>
   <img src="https://img.shields.io/badge/audio-PipeWire-orange" alt="PipeWire"/>
@@ -88,7 +89,7 @@ Everything lands in the one terminal — transcript lines as they're finalized, 
 
 A press while that lane is still working is **dropped, not queued**. Mid-conversation, a stale answer arriving late is worse than none.
 
-Component-level design, data shapes, and what's deliberately deferred: **[docs/SPEC.md](docs/SPEC.md)**. The live run-through for judging whether it's actually any good: **[docs/MVP_TEST.md](docs/MVP_TEST.md)**.
+Component-level design, data shapes, and what's deliberately deferred: **[docs/SPEC.md](docs/SPEC.md)**. The live run-through for judging whether it's actually any good: **[docs/MVP_TEST.md](docs/MVP_TEST.md)**. What shipped in each release, and the limitations it shipped with: **[CHANGELOG.md](CHANGELOG.md)**.
 
 ## Why native, and not a browser extension
 
