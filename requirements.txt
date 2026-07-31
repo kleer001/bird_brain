@@ -1,5 +1,4 @@
 # Core
-anthropic>=0.40            # Claude API — fast lane
 websockets>=14             # Deepgram streaming (raw WS client).
                            # 14.0 is where the top-level `websockets.connect`
                            # became the new asyncio client, which is the one
@@ -7,7 +6,8 @@ websockets>=14             # Deepgram streaming (raw WS client).
                            # raises TypeError at connect.
 python-dotenv>=1.0         # .env loading
 
-# Deep lane (optional) — the "Claude Code in the conversation" session.
+# Both lanes. The fast lane runs through this too, so there is no `anthropic`
+# dependency here — nothing in src/ calls the Messages API.
 # Also requires the Claude Code CLI on PATH:  npm i -g @anthropic-ai/claude-code
 claude-agent-sdk>=0.1
 

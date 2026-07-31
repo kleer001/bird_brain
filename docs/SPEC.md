@@ -28,8 +28,10 @@ tool-capable session (deep). Voice-in, text-out for the prototype.
                                                         └──────────────────────┘
 ```
 
-Single Python process, `asyncio`. Four long-lived tasks: two capture→STT pipelines, one hotkey
-listener, and the deep-lane session. The fast lane is spawned per keypress.
+Single Python process, `asyncio`. Long-lived: two capture→STT pipelines, the hotkey listener, and
+a CLI session per lane — both are opened once at startup and reused, since connecting costs about
+a second and the fast lane cannot afford to pay it per press. Only the per-press *turn* is spawned
+on a keypress, one in flight per lane.
 
 ## 3. Components
 
@@ -181,7 +183,7 @@ user   = window(n_chars=4000)                                        # volatile,
 
 | Var | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Fast lane. Blank → fall back to an `ant auth login` profile |
+| `ANTHROPIC_API_KEY` | Optional, and opt-in to per-token billing for **both** lanes — see §5.1 |
 | `DEEP_LANE_AUTH` | `subscription` (default) or `api` — see §5.1 |
 | `DEEPGRAM_API_KEY` | STT. Required when `STT_BACKEND=deepgram`, validated at startup |
 | `STT_BACKEND` | `local` (default) or `deepgram` |

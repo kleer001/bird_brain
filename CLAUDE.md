@@ -3,22 +3,27 @@
 A keypress-triggered voice copilot for Linux: capture both sides of a spoken
 conversation, keep a rolling transcript, and on an explicit hotkey hand that
 transcript to Claude. Two lanes — a fast reflex answer and a deep tool-using
-research session. Prototype stage: the code is coherent and close to runnable,
-with `TODO` markers, and has not been run end to end.
+research session. Prototype stage, but it runs: both lanes have been exercised
+end to end and the latency numbers in the spec are measured rather than budgeted.
 
 ## Layout
 
 ```
-src/config.py      startup config; the fast/deep auth split (read the docstring first)
+src/config.py      startup config; the auth split (read the docstring first)
 src/audio.py       parec capture of the default mic and the default sink's .monitor
-src/stt.py         streaming STT — Deepgram over raw WebSocket, or local faster-whisper
+src/stt.py         streaming STT — local faster-whisper, or Deepgram over raw WebSocket
 src/transcript.py  rolling speaker-tagged buffer; window() returns the prompt tail
-src/fast_lane.py   one streaming Messages API call per press, no tools
-src/deep_lane.py   persistent Claude Agent SDK session, tools on
-src/hotkey.py      FIFO trigger fed by a GNOME custom shortcut
+src/fast_lane.py   persistent Agent SDK session, no tools, one turn per press
+src/deep_lane.py   persistent Agent SDK session, tools on
+src/hotkey.py      FIFO trigger fed by a desktop custom shortcut
 src/main.py        glue: two capture pipelines + the trigger loop
-docs/SPEC.md            component design, data shapes, latency budget, deferred work
-docs/INSTALL.md         Ubuntu setup: PipeWire, hotkeys, venv, keys
+scripts/selftest.py     the preflight behind ./run.sh --check
+bootstrap.sh            one-command install; seeds .env from .env.example verbatim
+run.sh                  launcher, and --check
+prompts/background.txt  default fast-lane background
+docs/SPEC.md            component design, data shapes, measured latency, deferred work
+docs/INSTALL.md         Ubuntu setup: PipeWire, hotkeys, venv, credentials
+docs/MVP_TEST.md        the checks that need ears, not a script
 ```
 
 `docs/SPEC.md` is the design of record. When behavior and spec disagree, decide which
@@ -27,8 +32,8 @@ one is wrong and fix that one — don't leave them out of sync.
 ## Run
 
 ```bash
-source .venv/bin/activate
-python -m src.main            # then press the bound shortcuts
+./run.sh --check              # preflight — measures rather than assumes
+./run.sh                      # then press the bound shortcuts
 ```
 
 Setup is `docs/INSTALL.md`. Triggers can be exercised without touching the keyboard:
@@ -51,16 +56,20 @@ measure it — `parec ... > /tmp/x.raw`, then compute RMS over the `int16` sampl
 A dead or wrong device yields a steady stream of near-zero samples, which looks
 identical to a working one at the `xxd` level.
 
-There is no test suite. Verification is running the thing and watching the
-`[me]` / `[them]` lines and lane output.
+There is no unit-test suite. Verification is `./run.sh --check`, which measures
+the mechanical parts — devices, signal levels, transcription, both sessions, the
+trigger round-trip — and then `docs/MVP_TEST.md` for what a script cannot judge:
+whether an answer is any good and whether it arrived fast enough to say out loud.
 
 ## Conventions
 
 - Async throughout; `asyncio` tasks, no threads. Capture, STT, and both lanes
   run concurrently and are cancelled together on exit.
 - One path, no fallbacks. Bad config raises at startup rather than degrading.
-  The one deliberate exception is the deep lane's lazy import, so the fast lane
-  still works without the Agent SDK installed.
+  The deliberate exception is the lanes themselves: both import the Agent SDK
+  lazily and each disables itself with a printed reason if its session won't
+  open, so a missing SDK or an unauthenticated CLI is a legible message at
+  startup rather than an import crash. The lanes fail independently.
 - A press while that lane is still working is dropped, not queued — a stale
   answer arriving late is worse than none.
 - `snake_case` functions, `PascalCase` classes, stdlib → third-party → local
@@ -68,25 +77,29 @@ There is no test suite. Verification is running the thing and watching the
 
 ## Load-bearing details
 
-- **Auth split.** `ANTHROPIC_API_KEY` in the environment outranks a Claude Code
-  subscription credential, and the Agent SDK's child process inherits our
-  environment. `DEEP_LANE_AUTH=subscription` (default) pops the key after
-  capturing it and passes it to the fast lane explicitly. `config.load()` must
-  therefore run before `DeepLane.start()`. See `docs/SPEC.md` §5.1.
+- **One credential, both lanes.** Both drive the Claude Code CLI through the
+  Agent SDK, so `claude login` covers everything and nothing bills per token.
+  Nothing in `src/` imports `anthropic` — don't reintroduce it.
+- **Auth split.** `ANTHROPIC_API_KEY` is optional and opting into it bills
+  *both* lanes: an explicit key outranks the Claude Code credential and the SDK's
+  child processes inherit our environment. `DEEP_LANE_AUTH=subscription`
+  (default) pops the key so both lanes fall through to the login. `config.load()`
+  must therefore run before either lane's `start()`. See `docs/SPEC.md` §5.1.
   The pop is keyed on **presence, not truthiness**: an empty
   `ANTHROPIC_API_KEY=""` still holds its precedence slot and authenticates as an
   empty key.
-- **The fast lane needs its own credential.** A Claude Code login does not reach
-  it — that lives in `~/.claude/.credentials.json`, which the Python `anthropic`
-  SDK does not read. Without a key, a token, or an `ant auth login` profile, the
-  deep lane works and the fast lane fails on first press.
-- **Prompt caching.** The stable prefix (instructions + background) carries the
-  `cache_control` breakpoints; the transcript tail is volatile and must never
-  carry one. The prefix must clear **512 tokens** (Opus 5's minimum) or nothing
-  caches at all — instructions alone are ~200, so this rides on
-  `BIRD_BRAIN_RESUME` being substantial.
-- **Fast lane has no tools** — with thinking disabled, a tool call can be
-  emitted as plain text and silently never run.
+- **No prompt-caching control.** `cache_control` breakpoints are not reachable
+  through the Agent SDK — the CLI decides. The system prompt is therefore sized
+  for content, not to clear a cache floor; a 17,000-character prefix measured the
+  same as an 848-character one. Don't reintroduce a token-floor warning.
+- **Fast lane has no tools** (`allowed_tools=[]`) — a conversation copilot has
+  nothing to run, and tool definitions are prompt weight on a latency budget.
+- **Both lanes pass `system_prompt` as a plain string**, which *replaces* Claude
+  Code's preset rather than appending to it, and `setting_sources=[]`, so
+  `~/.claude` rules written for interactive use cannot reshape answers here.
+- **`.env.example` is copied to `.env` verbatim** by `bootstrap.sh`, so every
+  uncommented line in it must be a working default. A placeholder on an active
+  line reads as configured and fails later, somewhere else.
 - **The deep lane's Bash gate is a `PreToolUse` hook, not `can_use_tool`.** The
   callback is only consulted when the CLI decides to ask, and headless it does
   not ask — Bash executes unprompted with the callback wired. The hook also
