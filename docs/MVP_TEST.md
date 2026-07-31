@@ -46,19 +46,31 @@ proper nouns are where it shows. If it matters for your conversations, raise
 Have the far side ask something answerable from your background file. Press
 `Meta+Space`.
 
-**Pass:** an answer starts streaming in about a second, reads as a reply to what
-was actually said, and is short enough to say out loud without editing. That
-last part is the real test — a correct answer you would never read aloud is a
-failed answer here.
+**Pass:** the answer reads as a reply to what was actually said, and is short
+enough to say out loud without editing. That last part is the real test — a
+correct answer you would never read aloud is a failed answer here.
+
+**On speed, read the number rather than judging it.** Every press prints its own
+measurement:
+
+```
+[fast] first word 4.2s | total 4.6s
+```
+
+Measured range through the CLI hop is 3–16 s to first word, with high and
+so-far-unexplained variance (SPEC §3.4). Anything in that band is the current
+architecture, not a fault on your machine. The gap between first word and
+complete should stay under a second — if *that* stretches, the answer is running
+long past the two-to-four sentences the instructions ask for, and length is
+wall-clock on a lane you read aloud.
 
 **Then press it twice in quick succession.** The second press must print
 `[fast] busy — press ignored`. Dropping it is intended: mid-conversation, a
 stale answer arriving late is worse than none.
 
-**Check the usage line.** First press of a session: `cache_read=0`, large
-`cache_write`. Second press: large `cache_read`. If it stays 0, startup also
-printed `[fast] NOT CACHING` and `BIRD_BRAIN_RESUME` is too small to clear the
-512-token minimum.
+**The session is stateful**, so each press sees the presses before it. That is a
+deliberate trade — reconnecting costs about a second — and it is the first thing
+to suspect if answers start drifting toward earlier questions over a long run.
 
 ---
 

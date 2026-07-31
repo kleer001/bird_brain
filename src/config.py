@@ -1,23 +1,19 @@
-"""Startup config — and the fast/deep auth split.
+"""Startup config — and the auth split.
 
-The two lanes talk to different surfaces, which can mean different billing:
+Both lanes drive the Claude Code CLI through the Agent SDK, so both authenticate
+the same way: whatever `claude login` established. No API key is required and
+nothing bills per token.
 
-  fast lane -> Anthropic API (Messages API), always per-token against a key
-  deep lane -> Claude Agent SDK, i.e. Claude Code, which can authenticate
-               against a Claude subscription login instead
-
-The catch: an explicit `ANTHROPIC_API_KEY` in the environment outranks an OAuth
-profile / subscription credential, and the Agent SDK's child process inherits
-our environment. So merely having the key set silently routes the deep lane to
-per-token API billing too.
+`ANTHROPIC_API_KEY` is therefore opt-in, and opting in bills *both* lanes: an
+explicit key outranks the Claude Code credential, and the SDK's child processes
+inherit our environment. Merely having one set silently routes everything to
+per-token API billing.
 
 `DEEP_LANE_AUTH=subscription` (the default) removes the key from the environment
-after we've captured it, and hands it to the fast lane explicitly. The deep lane
-then falls through to whatever credential Claude Code has (`claude login`, or an
-`ant auth login` profile).
+so both lanes fall through to the Claude Code login.
 
 Set `DEEP_LANE_AUTH=api` to leave the environment alone and bill both lanes to
-the API key.
+the key instead.
 """
 
 from __future__ import annotations
@@ -35,13 +31,13 @@ DEFAULT_WINDOW_CHARS = 4000
 @dataclass(frozen=True)
 class Config:
     anthropic_api_key: str | None
-    """Key for the fast lane. None means "let the SDK resolve credentials
-    itself" — e.g. an `ant auth login` profile."""
+    """Captured before the environment is stripped, so `api` mode can tell
+    whether a key was actually supplied. None means no key was set, which is the
+    normal case — both lanes run on the Claude Code credential."""
 
     fast_model: str
-    """Model for the fast lane. Validated against fast_lane.MODEL_PARAMS, which
-    is the single source of truth for which models this lane knows how to shape
-    a request for."""
+    """Model for the fast lane. Not validated here: the lane runs through the
+    Agent SDK, so the Claude Code CLI owns which model strings are legal."""
 
     deep_auth: str
     """"subscription" | "api" — see module docstring."""

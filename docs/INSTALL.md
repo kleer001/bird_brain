@@ -43,8 +43,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` pulls the Claude SDK, a WebSocket client for Deepgram, and dotenv. The Agent
-SDK (deep lane) and `faster-whisper` (local STT) are optional — see comments in that file.
+`requirements.txt` pulls the Claude Agent SDK — which **both** lanes run on, so it is not
+optional — plus `faster-whisper` for local STT, a WebSocket client for Deepgram, and dotenv.
 
 The Claude Agent SDK also needs the Claude Code CLI on PATH:
 
@@ -52,55 +52,44 @@ The Claude Agent SDK also needs the Claude Code CLI on PATH:
 npm install -g @anthropic-ai/claude-code     # provides the runtime the Agent SDK drives
 ```
 
-## 3. API keys and the two billing paths
+## 3. Credentials — one login covers both lanes
 
 ```bash
 cp .env.example .env
-$EDITOR .env      # fill ANTHROPIC_API_KEY, and DEEPGRAM_API_KEY if using cloud STT
 ```
 
-Point `BIRD_BRAIN_RESUME` at a plain-text file of your background — the knowledge base the fast
-lane answers from.
+`.env.example` is written to work as-is: local STT, no keys. The only edit worth making up front
+is pointing `BIRD_BRAIN_RESUME` at a plain-text file of your own background — the knowledge base
+the fast lane answers from. Fill in `DEEPGRAM_API_KEY` only if you switch to cloud STT (§6).
 
-The two lanes can bill differently, and `DEEP_LANE_AUTH` picks which:
-
-| `DEEP_LANE_AUTH` | Fast lane | Deep lane | You need |
-|---|---|---|---|
-| `subscription` (default) | API key, per-token | Claude Code login — **not** API credit | `claude login` once |
-| `api` | API key, per-token | same API key, per-token | nothing extra |
-
-In `subscription` mode the app removes `ANTHROPIC_API_KEY` from its own environment before
-starting the Agent SDK, because an explicit key outranks a subscription credential and the SDK's
-child process inherits the environment. The fast lane still gets the key — passed directly. So:
+**Both lanes drive the Claude Code CLI through the Agent SDK**, so both authenticate the same way:
+whatever `claude login` established. No API key is required and nothing bills per token.
 
 ```bash
-claude login          # once, if using DEEP_LANE_AUTH=subscription
+claude login          # once
 claude -p 'say ok'    # confirm the CLI is authenticated
 ```
 
-If the deep lane can't authenticate it says so at startup, disables itself, and the fast lane
-keeps working.
+Each lane opens its own CLI session — they cannot share one, because a deep-lane turn runs for
+minutes and would block every press. If a session fails to open, that lane prints why and disables
+itself; the other is unaffected.
 
-**`claude login` does not cover the fast lane.** The two lanes hit different surfaces: the fast
-lane calls the Messages API through the Python `anthropic` SDK, which cannot read the credential
-`claude login` writes to `~/.claude/.credentials.json`. So a subscription login alone gives you a
-working deep lane and a fast lane that 401s on the first press. The fast lane needs one of:
+### If you set an API key anyway
 
-| Option | How | Billing |
+`ANTHROPIC_API_KEY` is opt-in here, and setting one opts you into per-token billing: an explicit
+key outranks the Claude Code login and the SDK's child processes inherit the app's environment,
+so a stray key silently routes **both** lanes to the API. `DEEP_LANE_AUTH` decides what happens:
+
+| `DEEP_LANE_AUTH` | Effect | You need |
 |---|---|---|
-| API key | `ANTHROPIC_API_KEY` in `.env` | Per-token against the key |
-| OAuth profile | `ant auth login` → profile in `~/.config/anthropic/` | Per that profile's credential |
-| Auth token | `ANTHROPIC_AUTH_TOKEN` in the environment | Per that token |
+| `subscription` (default) | `ANTHROPIC_API_KEY` is removed from the environment at startup, so both lanes fall through to the Claude Code login — **not** API credit | `claude login` once |
+| `api` | The environment is left alone; both lanes bill per-token to the key | a funded key |
 
-Check what the SDK can currently see:
+The removal is keyed on the variable being **present**, not on it being non-empty: an empty
+`ANTHROPIC_API_KEY=""` still occupies its slot in the precedence order, ahead of the Claude Code
+login, and would authenticate as an empty key.
 
-```bash
-python -c "from anthropic import Anthropic; c=Anthropic(); print('api_key:', bool(c.api_key), 'auth_token:', bool(c.auth_token))"
-```
-
-Both `False` means the fast lane has no credential. If you take the `ant auth login` route, note it
-can conflict with Claude Code's own login — keep one, and see `ant auth status` to check which
-credential source is winning.
+`ANTHROPIC_AUTH_TOKEN` is deliberately never touched — if it is set, it was set on purpose.
 
 ## 4. The hotkey (the one Linux-specific gotcha)
 
@@ -198,12 +187,16 @@ present.
 ## 5. Run
 
 ```bash
-source .venv/bin/activate
-python -m src.main
+./run.sh --check      # preflight: devices, signal levels, transcription, both lanes, trigger
+./run.sh              # start listening
 ```
 
+`run.sh` uses `.venv` directly, so there is nothing to activate. It refuses to start rather than
+degrade if the venv or `.env` is missing.
+
 Talk. When you want an answer, press `Meta+Space` (fast) or `Meta+D` (deep). Output streams to
-the terminal.
+the terminal. What the preflight cannot judge — whether an answer is any *good* — is in
+[MVP_TEST.md](MVP_TEST.md).
 
 ## 6. Local STT (the default, no cloud)
 
@@ -236,8 +229,8 @@ product — just a naming collision.
 | `parec` dies mid-call | Default sink changed; the app re-spawns on EOF, but check logs |
 | `[audio] parec produced nothing` | Bad device name, or `pulseaudio-utils` not installed |
 | Hotkey does nothing | FIFO missing, or shortcut bound but app not reading; `cat` the FIFO to test |
-| Claude answer slow to start | Cold cache (first press) or effort too high; confirm `effort=low` |
-| `[fast] NOT CACHING` at startup | `BIRD_BRAIN_RESUME` too small — the prefix is under 512 tokens |
-| Fast lane 401s, deep lane fine | The fast lane needs its own credential; a `claude login` doesn't reach it (§3) |
+| Fast lane slow to first word | Expected — measured 3–16 s through the CLI hop, high variance (SPEC §3.4) |
+| `[fast] session failed to start` | `claude` not on PATH, or not logged in — `claude -p 'say ok'` (§3) |
+| Both lanes disabled at startup | `claude-agent-sdk` not installed, or the Claude Code CLI is missing |
 | Transcript contains things nobody said | Whisper hallucinating on silence — `vad_filter` must stay on |
 | STT gibberish | Wrong sample rate — must be 16 kHz mono `s16le` end to end |
